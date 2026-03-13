@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+artifacts/
+*.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+
+# Electrobun build artifacts
+*.dmg
+*.app
+*.zip
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Vite
+node_modules/.vite/

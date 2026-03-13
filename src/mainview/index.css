@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+	overflow: hidden;
+}
+
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+		system-ui, sans-serif;
+	background: #fafaf8;
+	color: #1c1917;
+	font-size: 13px;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Title bar drag region */
+.titlebar-drag {
+	-webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+	-webkit-app-region: no-drag;
+}
+
+/* Scrollbar styling — minimal, warm */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: #d4d1cc;
+	border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: #a8a29e;
+}
+
+/* Selection color */
+::selection {
+	background: #fed7aa;
+	color: #1c1917;
+}
+
+/* Warm prose styling for markdown */
+.prose-warm {
+	color: #44403c;
+	font-size: 14px;
+	line-height: 1.7;
+}
+
+.prose-warm h1,
+.prose-warm h2,
+.prose-warm h3,
+.prose-warm h4 {
+	color: #1c1917;
+	font-weight: 600;
+	margin-top: 1.5em;
+	margin-bottom: 0.5em;
+}
+
+.prose-warm h1 { font-size: 1.5em; }
+.prose-warm h2 { font-size: 1.25em; }
+.prose-warm h3 { font-size: 1.1em; }
+
+.prose-warm p {
+	margin-bottom: 0.75em;
+}
+
+.prose-warm code {
+	font-family: "SF Mono", "Fira Code", "JetBrains Mono", ui-monospace, monospace;
+	font-size: 0.85em;
+	background: #f3f2ef;
+	padding: 0.15em 0.35em;
+	border-radius: 2px;
+}
+
+.prose-warm pre {
+	background: #1c1917;
+	color: #e7e5e4;
+	padding: 0.75em 1em;
+	border-radius: 4px;
+	overflow-x: auto;
+	margin-bottom: 0.75em;
+}
+
+.prose-warm pre code {
+	background: none;
+	padding: 0;
+	color: inherit;
+}
+
+.prose-warm ul, .prose-warm ol {
+	padding-left: 1.5em;
+	margin-bottom: 0.75em;
+}
+
+.prose-warm li {
+	margin-bottom: 0.25em;
+}
+
+.prose-warm table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 0.75em;
+	font-size: 0.85em;
+}
+
+.prose-warm th, .prose-warm td {
+	border: 1px solid #d4d1cc;
+	padding: 0.35em 0.5em;
+	text-align: left;
+}
+
+.prose-warm th {
+	background: #f3f2ef;
+	font-weight: 600;
+	color: #1c1917;
+}
+
+.prose-warm a {
+	color: #c2410c;
+	text-decoration: none;
+}
+
+.prose-warm a:hover {
+	text-decoration: underline;
+}
+
+.prose-warm blockquote {
+	border-left: 3px solid #d4d1cc;
+	padding-left: 0.75em;
+	color: #78716c;
+	margin-bottom: 0.75em;
+}
+
+.prose-warm hr {
+	border: none;
+	border-top: 1px solid #d4d1cc;
+	margin: 1.5em 0;
+}

@@ -198,7 +198,12 @@ function reducer(state: WorkspaceState, action: Action): WorkspaceState {
 				activeTerminalIndex = Math.max(0, activeTerminalIndex - 1);
 			}
 			if (sessions.length === 0) activeTerminalIndex = -1;
-			return { ...state, terminalSessions: sessions, activeTerminalIndex };
+			return {
+				...state,
+				terminalSessions: sessions,
+				activeTerminalIndex,
+				terminalVisible: sessions.length > 0,
+			};
 		}
 
 		case "SET_ACTIVE_TERMINAL":

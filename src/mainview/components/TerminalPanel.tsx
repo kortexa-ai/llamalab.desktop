@@ -137,6 +137,7 @@ function TerminalInstance({
 	const termRef = useRef<HTMLDivElement>(null);
 	const xtermRef = useRef<any>(null);
 	const initializedRef = useRef(false);
+	const backendIdRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (!termRef.current || initializedRef.current) return;
@@ -189,18 +190,26 @@ function TerminalInstance({
 			xtermRef.current = term;
 
 			// Start a terminal session
-			const { sessionId: sid } = await rpcRequest.startTerminal({
-				cwd: session.cwd,
-				cols: term.cols,
-				rows: term.rows,
-				name: session.name,
-			});
-			// Update session id from pending to real
-			dispatch({
-				type: "UPDATE_TERMINAL_SESSION",
-				id: session.id,
-				updates: { id: sid },
-			});
+			let sid: string;
+			try {
+				const result = await rpcRequest.startTerminal({
+					cwd: session.cwd,
+					cols: term.cols || 80,
+					rows: term.rows || 24,
+					name: session.name,
+				});
+				sid = result.sessionId;
+			} catch (err: any) {
+				term.write(`\r\n\x1b[31m[Failed to start terminal: ${err.message || err}]\x1b[0m\r\n`);
+				dispatch({
+					type: "UPDATE_TERMINAL_SESSION",
+					id: session.id,
+					updates: { status: "exited", exitCode: 1 },
+				});
+				return;
+			}
+			// Store backend session id for cleanup (don't update session.id — it's the React key)
+			backendIdRef.current = sid;
 
 			// Forward input
 			term.onData((data) => {
@@ -223,9 +232,13 @@ function TerminalInstance({
 					term.write(`\r\n[Process exited with code ${detail.code}]\r\n`);
 					dispatch({
 						type: "UPDATE_TERMINAL_SESSION",
-						id: sid,
+						id: session.id,
 						updates: { status: "exited", exitCode: detail.code },
 					});
+					// Auto-close after a moment so the user can see the exit message
+					setTimeout(() => {
+						dispatch({ type: "REMOVE_TERMINAL_SESSION", id: session.id });
+					}, 1500);
 				}
 			};
 			window.addEventListener("terminalExit", exitHandler);

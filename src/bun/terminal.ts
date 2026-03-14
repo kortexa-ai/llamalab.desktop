@@ -25,16 +25,16 @@ else:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
     buf = b""
+    alive = True
     try:
-        while True:
-            rlist, _, _ = select.select([sys.stdin.buffer, fd], [], [], 0.1)
+        while alive:
+            rlist, _, _ = select.select([sys.stdin.buffer, fd], [], [], 0.05)
             for r in rlist:
                 if r == sys.stdin.buffer:
                     data = os.read(sys.stdin.buffer.fileno(), 4096)
                     if not data:
-                        os.close(fd)
-                        os.waitpid(pid, 0)
-                        sys.exit(0)
+                        alive = False
+                        break
                     buf += data
                     while True:
                         m = re.search(rb'\\x1b\\]9999;(\\d+);(\\d+)\\x07', buf)
@@ -53,14 +53,28 @@ else:
                     try:
                         data = os.read(fd, 4096)
                         if not data:
+                            alive = False
                             break
                         sys.stdout.buffer.write(data)
                         sys.stdout.buffer.flush()
                     except OSError:
+                        alive = False
                         break
+            # Check if child process has exited
+            if alive:
+                try:
+                    wpid, status = os.waitpid(pid, os.WNOHANG)
+                    if wpid != 0:
+                        alive = False
+                except ChildProcessError:
+                    alive = False
     except (KeyboardInterrupt, OSError):
         pass
     finally:
+        try:
+            os.close(fd)
+        except:
+            pass
         try:
             os.kill(pid, signal.SIGTERM)
             os.waitpid(pid, 0)
@@ -116,11 +130,16 @@ export class TerminalManager {
 		const cols = params.cols || 80;
 		const rows = params.rows || 24;
 
+		// GUI apps on macOS don't inherit shell PATH — ensure homebrew is included
+		const basePath = process.env.PATH || "/usr/local/bin:/usr/bin:/bin";
+		const extraPaths = ["/opt/homebrew/bin", "/opt/homebrew/sbin"];
+		const fullPath = [...new Set([...extraPaths, ...basePath.split(":")])].join(":");
+
 		const cleanEnv: Record<string, string> = {
 			HOME,
 			USER: process.env.USER || "",
 			SHELL: process.env.SHELL || "/bin/zsh",
-			PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+			PATH: fullPath,
 			TERM: "xterm-256color",
 			LANG: process.env.LANG || "en_US.UTF-8",
 			EDITOR: process.env.EDITOR || "vim",
@@ -128,24 +147,41 @@ export class TerminalManager {
 		if (process.env.SSH_AUTH_SOCK)
 			cleanEnv.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
 
-		const proc = spawn(
-			"python3",
-			["-c", PTY_WRAPPER, cwd, String(cols), String(rows)],
-			{
-				stdio: ["pipe", "pipe", "pipe"],
-				env: cleanEnv,
-			},
-		);
+		console.log(`[terminal] starting session ${sessionId}, cwd=${cwd}, cols=${cols}, rows=${rows}`);
+
+		let proc: ReturnType<typeof spawn>;
+		try {
+			proc = spawn(
+				"python3",
+				["-c", PTY_WRAPPER, cwd, String(cols), String(rows)],
+				{
+					stdio: ["pipe", "pipe", "pipe"],
+					env: cleanEnv,
+				},
+			);
+		} catch (err) {
+			console.error(`[terminal] spawn failed:`, err);
+			throw err;
+		}
+
+		proc.on("error", (err) => {
+			console.error(`[terminal] process error for ${sessionId}:`, err);
+			this.onOutput?.(sessionId, `\r\n[Terminal error: ${err.message}]\r\n`);
+			this.onExit?.(sessionId, 1);
+			this.sessions.delete(sessionId);
+		});
 
 		proc.stdout?.on("data", (chunk: Buffer) => {
 			this.onOutput?.(sessionId, chunk.toString());
 		});
 
 		proc.stderr?.on("data", (chunk: Buffer) => {
+			console.error(`[terminal] stderr ${sessionId}:`, chunk.toString());
 			this.onOutput?.(sessionId, chunk.toString());
 		});
 
 		proc.on("exit", (exitCode) => {
+			console.log(`[terminal] session ${sessionId} exited with code ${exitCode}`);
 			this.onExit?.(sessionId, exitCode ?? 1);
 			this.sessions.delete(sessionId);
 		});

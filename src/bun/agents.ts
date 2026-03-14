@@ -36,7 +36,6 @@ for line in sys.stdin:
             elif block.get("type") == "tool_use":
                 name = block.get("name", "")
                 inp = block.get("input", {})
-                # Show tool calls compactly
                 if name == "Read":
                     print(f"\\n> Reading {inp.get('file_path', '?')}...", flush=True)
                 elif name == "Edit":
@@ -45,25 +44,46 @@ for line in sys.stdin:
                     print(f"\\n> Writing {inp.get('file_path', '?')}...", flush=True)
                 elif name == "Bash":
                     cmd = inp.get("command", "?")
-                    if len(cmd) > 120:
-                        cmd = cmd[:120] + "..."
-                    print(f"\\n> $ {cmd}", flush=True)
+                    desc = inp.get("description", "")
+                    if desc:
+                        print(f"\\n> $ {desc}", flush=True)
+                        print(f"  {cmd}", flush=True)
+                    else:
+                        print(f"\\n> $ {cmd}", flush=True)
                 elif name == "Grep":
-                    print(f"\\n> Searching for {inp.get('pattern', '?')}...", flush=True)
+                    print(f"\\n> Searching for /{inp.get('pattern', '?')}/ in {inp.get('path', '.')}...", flush=True)
                 elif name == "Glob":
                     print(f"\\n> Finding {inp.get('pattern', '?')}...", flush=True)
                 else:
                     print(f"\\n> [{name}]", flush=True)
-    elif t == "tool_result":
-        # Skip large tool results, just note it happened
-        pass
+    elif t == "user":
+        # Tool results — show stdout from Bash commands
+        tr = d.get("tool_use_result", {})
+        stdout = tr.get("stdout", "")
+        stderr = tr.get("stderr", "")
+        is_error = tr.get("is_error", False) or d.get("message", {}).get("content", [{}])[0].get("is_error", False)
+        output = stdout or ""
+        if stderr:
+            output = output + "\\n" + stderr if output else stderr
+        if output:
+            # Show up to 40 lines of output, truncate the rest
+            lines = output.split("\\n")
+            if len(lines) > 40:
+                shown = "\\n".join(lines[:20] + [f"  ... ({len(lines) - 40} lines omitted) ..."] + lines[-20:])
+            else:
+                shown = output
+            prefix = "ERROR: " if is_error else ""
+            print(f"{prefix}{shown}", flush=True)
     elif t == "result":
         result = d.get("result", "")
-        if result:
-            print(f"\\n\\n--- Result ---\\n{result}", flush=True)
         cost = d.get("total_cost_usd")
+        turns = d.get("num_turns", "?")
+        duration = d.get("duration_ms", 0)
+        mins = duration / 60000
+        if result:
+            print(f"\\n\\n--- Done ({turns} turns, {mins:.1f}m) ---\\n{result}", flush=True)
         if cost:
-            print(f"\\n[Cost: \${cost:.4f}]", flush=True)
+            print(f"[Cost: \${cost:.4f}]", flush=True)
     elif t == "system" and d.get("subtype") == "init":
         model = d.get("model", "?")
         print(f"[Model: {model}]", flush=True)

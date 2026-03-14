@@ -54,11 +54,20 @@ screencapture -x -o -l<WID> /tmp/llamalab-screenshot.png
 - The app process name is "Llama Lab-dev" in dev mode, owner PID is the bun child process
 - `-x` suppresses the screenshot sound, `-o` excludes window shadow
 
-## Electrobun Specifics
+## Electrobun Reference
 
-- **Drag regions**: Electrobun does NOT use CSS `-webkit-app-region: drag`. It requires the class `.electrobun-webkit-app-region-drag` on elements.
+Full LLM docs: https://blackboard.sh/electrobun/llms.txt
+
+- **Drag regions**: Does NOT use CSS `-webkit-app-region: drag`. Requires class `.electrobun-webkit-app-region-drag` (and `-no-drag` for interactive children).
 - **Config**: `electrobun.config.ts` in project root
 - **Icons**: `icon.iconset/` folder → `iconutil -c icns` → placed by build system
+- **RPC**: Define shared type → `BrowserView.defineRPC<T>()` on bun side → `electroview.rpc` on browser side. Requests return values, messages are fire-and-forget.
+- **Menus**: `ApplicationMenu.setApplicationMenu()` for app menu, `Tray` for system tray, `ContextMenu.showContextMenu()` for right-click. All use action strings dispatched via events.
+- **Lifecycle**: `Electrobun.events.on("before-quit", e => ...)` fires before quit and supports cancellation via `e.response = { allow: false }`.
+- **Webview**: `loadURL()`, `loadHTML()`, navigation rules (glob allow/block), `evaluateJavascriptWithResponse` for executing JS from bun side.
+- **Paths**: `Utils.paths` for cross-platform dirs (home, appData, documents, downloads) + app-scoped dirs using identifier/channel.
+- **Screen**: Display info, work areas, scale factors, cursor position — useful for window centering.
+- **Embedded webviews**: `<electrobun-webview>` custom element for isolated out-of-process webviews with partition support and preload scripts.
 
 ## Agent System
 

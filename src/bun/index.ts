@@ -57,6 +57,7 @@ import {
 	openWorkspace,
 	getRecentWorkspaces,
 } from "./workspace";
+import { resolve } from "node:path";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -77,6 +78,8 @@ async function getMainViewUrl(): Promise<string> {
 	}
 	return "views://mainview/index.html";
 }
+
+const url = await getMainViewUrl();
 
 // --- Terminal manager ---
 const terminalManager = new TerminalManager();
@@ -181,46 +184,7 @@ const rpc = BrowserView.defineRPC<AppRPC>({
 	},
 });
 
-// --- Create window ---
-const url = await getMainViewUrl();
-
-const mainWindow = new BrowserWindow({
-	title: "Llama Lab",
-	url,
-	frame: {
-		width: 1200,
-		height: 800,
-		x: 100,
-		y: 100,
-	},
-	titleBarStyle: "hiddenInset",
-	rpc,
-});
-
-// --- Wire terminal RPC messages ---
-terminalManager.onOutput = (sessionId, data) => {
-	mainWindow.webview.rpc.send.terminalOutput({ sessionId, data });
-};
-terminalManager.onExit = (sessionId, code) => {
-	mainWindow.webview.rpc.send.terminalExit({ sessionId, code });
-};
-
-// --- File watcher (only if workspace is configured) ---
-import { getWorkspaceConfig } from "./config";
-
-let watchDebounce: ReturnType<typeof setTimeout> | null = null;
-if (getWorkspaceConfig()) {
-	watchResearchDir((_event, _filename) => {
-		// Debounce: batch filesystem changes
-		if (watchDebounce) clearTimeout(watchDebounce);
-		watchDebounce = setTimeout(() => {
-			mainWindow.webview.rpc.send.programsChanged({});
-		}, 500);
-	});
-}
-
 // --- System Tray (dynamic) ---
-import { resolve } from "node:path";
 const trayIconPath = resolve(import.meta.dir, "../../assets/tray-icon.png");
 const tray = new Tray({
 	title: "Llama Lab",
@@ -237,52 +201,10 @@ tray.setMenu([
 	{ type: "normal", label: "Quit", action: "quit" },
 ]);
 
-// Poll for running agents and update tray dynamically
-setInterval(async () => {
-	try {
-		const agents = await listAgents();
-		const running = agents.filter((a) => a.status === "running");
-
-		tray.setTitle(running.length > 0 ? `${running.length}` : "");
-
-		const menu: any[] = [
-			{ type: "normal", label: "Show Llama Lab", action: "show" },
-		];
-		if (running.length > 0) {
-			menu.push({ type: "divider" });
-			for (const a of running) {
-				const label = `${a.name} (${a.type})${a.programId ? ` — ${a.programId}` : ""}`;
-				menu.push({ type: "normal", label, action: `show-agent:${a.name}` });
-			}
-		}
-		menu.push({ type: "divider" });
-		menu.push({ type: "normal", label: "Quit", action: "quit" });
-		tray.setMenu(menu);
-	} catch {
-		// Ignore tray update errors
-	}
-}, 5000);
-
-tray.on("tray-clicked", (event: any) => {
-	const action = event.data?.action as string | undefined;
-	if (!action) return;
-
-	if (action === "show") {
-		mainWindow.focus();
-	} else if (action === "quit") {
-		terminalManager.killAll();
-		tray.remove();
-		process.exit(0);
-	} else if (action.startsWith("show-agent:")) {
-		const agentName = action.slice("show-agent:".length);
-		mainWindow.focus();
-		mainWindow.webview.rpc.send.menuAction({ action: `open-agent-log:${agentName}` });
-	}
-});
-
 // --- Application Menu ---
 ApplicationMenu.setApplicationMenu([
 	{
+		label: "Llama Lab",
 		submenu: [
 			{ label: "About Llama Lab", role: "about" },
 			{ type: "separator" },
@@ -360,6 +282,85 @@ ApplicationMenu.setApplicationMenu([
 		],
 	},
 ]);
+
+// --- Create window ---
+const mainWindow = new BrowserWindow({
+	title: "Llama Lab",
+	url,
+	frame: {
+		width: 1200,
+		height: 800,
+		x: 100,
+		y: 100,
+	},
+	titleBarStyle: "hiddenInset",
+	rpc,
+});
+
+// --- Wire terminal RPC messages ---
+terminalManager.onOutput = (sessionId, data) => {
+	mainWindow.webview.rpc.send.terminalOutput({ sessionId, data });
+};
+terminalManager.onExit = (sessionId, code) => {
+	mainWindow.webview.rpc.send.terminalExit({ sessionId, code });
+};
+
+// --- File watcher (only if workspace is configured) ---
+import { getWorkspaceConfig } from "./config";
+
+let watchDebounce: ReturnType<typeof setTimeout> | null = null;
+if (getWorkspaceConfig()) {
+	watchResearchDir((_event, _filename) => {
+		// Debounce: batch filesystem changes
+		if (watchDebounce) clearTimeout(watchDebounce);
+		watchDebounce = setTimeout(() => {
+			mainWindow.webview.rpc.send.programsChanged({});
+		}, 500);
+	});
+}
+
+// Poll for running agents and update tray dynamically
+setInterval(async () => {
+	try {
+		const agents = await listAgents();
+		const running = agents.filter((a) => a.status === "running");
+
+		tray.setTitle(running.length > 0 ? `${running.length}` : "");
+
+		const menu: any[] = [
+			{ type: "normal", label: "Show Llama Lab", action: "show" },
+		];
+		if (running.length > 0) {
+			menu.push({ type: "divider" });
+			for (const a of running) {
+				const label = `${a.name} (${a.type})${a.programId ? ` — ${a.programId}` : ""}`;
+				menu.push({ type: "normal", label, action: `show-agent:${a.name}` });
+			}
+		}
+		menu.push({ type: "divider" });
+		menu.push({ type: "normal", label: "Quit", action: "quit" });
+		tray.setMenu(menu);
+	} catch {
+		// Ignore tray update errors
+	}
+}, 5000);
+
+tray.on("tray-clicked", (event: any) => {
+	const action = event.data?.action as string | undefined;
+	if (!action) return;
+
+	if (action === "show") {
+		mainWindow.focus();
+	} else if (action === "quit") {
+		terminalManager.killAll();
+		tray.remove();
+		process.exit(0);
+	} else if (action.startsWith("show-agent:")) {
+		const agentName = action.slice("show-agent:".length);
+		mainWindow.focus();
+		mainWindow.webview.rpc.send.menuAction({ action: `open-agent-log:${agentName}` });
+	}
+});
 
 // Handle menu actions — forward to renderer
 Electrobun.events.on("application-menu-clicked", (event: any) => {

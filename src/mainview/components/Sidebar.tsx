@@ -12,7 +12,7 @@ import {
 	Minus,
 	DotsThree,
 	Robot,
-	ChartLine,
+	Graph,
 } from "@phosphor-icons/react";
 import { useWorkspace } from "../hooks/useWorkspace";
 import { rpcRequest } from "../rpc";
@@ -29,7 +29,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function Sidebar() {
-	const { state, dispatch, openProgram, openGraph, openFile } = useWorkspace();
+	const { state, dispatch, openProgram, openGraph, openFile, openWorkspaceOverview } = useWorkspace();
 	const [sourceFiles, setSourceFiles] = useState<FileEntry[]>([]);
 	const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
 
@@ -56,8 +56,7 @@ export function Sidebar() {
 	async function loadWorkspace() {
 		try {
 			const ws = await rpcRequest.getWorkspace({});
-			dispatch({ type: "SET_WORKSPACE_NAME", name: ws.name });
-			dispatch({ type: "SET_TRACKS_DIR", tracksDir: ws.tracksDir });
+			dispatch({ type: "SET_WORKSPACE_DETAIL", detail: ws });
 		} catch (err) {
 			console.error("Failed to load workspace:", err);
 		}
@@ -120,7 +119,7 @@ export function Sidebar() {
 		state.collapsedSections.has(section);
 
 	return (
-		<div className="flex flex-col h-full bg-surface-raised border-r border-border select-none">
+		<div className="flex flex-col h-full bg-surface-raised select-none">
 			{/* Drag region at top for title bar */}
 			<div className="titlebar-drag electrobun-webkit-app-region-drag h-9 flex-shrink-0" />
 
@@ -143,136 +142,123 @@ export function Sidebar() {
 				</div>
 			</div>
 
-			{/* Scrollable content */}
+			{/* Scrollable content — switches based on active view */}
 			<div className="flex-1 overflow-y-auto overflow-x-hidden px-1 titlebar-no-drag">
-				{/* Programs section */}
-				<SectionHeader
-					label="Programs"
-					count={state.programs.length}
-					collapsed={isCollapsed("programs")}
-					onToggle={() =>
-						dispatch({ type: "TOGGLE_SECTION", section: "programs" })
-					}
-				/>
-				{!isCollapsed("programs") && (
-					<div className="mb-2">
-						{STATUS_ORDER.filter((s) => filteredGrouped.has(s)).map(
-							(status) => (
-								<div key={status}>
-									<div className="flex items-center gap-1 px-3 py-0.5">
-										<Circle
-											size={6}
-											weight="fill"
-											className={STATUS_COLORS[status] || "text-stone-400"}
-										/>
-										<span className="text-2xs uppercase tracking-wider text-stone-400 font-medium">
-											{status}
-										</span>
-									</div>
-									{filteredGrouped.get(status)!.map((program) => (
-										<button
-											key={program.id}
-											onClick={() => openProgram(program)}
-											className={`w-full text-left px-4 py-1 text-xs truncate hover:bg-surface-sunken transition-colors ${
-												state.selectedSidebarItem === program.id
-													? "bg-accent-subtle text-accent font-medium"
-													: "text-stone-700"
-											}`}
-										>
-											{program.name}
-										</button>
-									))}
-								</div>
-							),
+				{state.activeSidebarView === "research" ? (
+					<>
+						{/* Workspace root node */}
+						<button
+							onClick={openWorkspaceOverview}
+							className="w-full text-left px-2 py-1.5 text-xs font-semibold text-stone-800 hover:bg-surface-sunken transition-colors flex items-center gap-1.5 rounded"
+						>
+							<Flask size={14} className="text-accent flex-shrink-0" />
+							<span className="truncate">{state.workspaceName || "Research Workspace"}</span>
+						</button>
+
+						{/* Programs section */}
+						<div className="flex items-center">
+							<SectionHeader
+								label="Programs"
+								count={state.programs.length}
+								collapsed={isCollapsed("programs")}
+								onToggle={() =>
+									dispatch({ type: "TOGGLE_SECTION", section: "programs" })
+								}
+							/>
+							<button
+								onClick={openGraph}
+								title="Dependency Graph"
+								className="mr-1 p-0.5 text-stone-400 hover:text-accent transition-colors"
+							>
+								<Graph size={12} />
+							</button>
+						</div>
+						{!isCollapsed("programs") && (
+							<div className="mb-2">
+								{STATUS_ORDER.filter((s) => filteredGrouped.has(s)).map(
+									(status) => (
+										<div key={status}>
+											<div className="flex items-center gap-1 px-3 py-0.5">
+												<Circle
+													size={6}
+													weight="fill"
+													className={STATUS_COLORS[status] || "text-stone-400"}
+												/>
+												<span className="text-2xs uppercase tracking-wider text-stone-400 font-medium">
+													{status}
+												</span>
+											</div>
+											{filteredGrouped.get(status)!.map((program) => (
+												<button
+													key={program.id}
+													onClick={() => openProgram(program)}
+													className={`w-full text-left px-4 py-1 text-xs truncate hover:bg-surface-sunken transition-colors ${
+														state.selectedSidebarItem === program.id
+															? "bg-accent-subtle text-accent font-medium"
+															: "text-stone-700"
+													}`}
+												>
+													{program.name}
+												</button>
+											))}
+										</div>
+									),
+								)}
+							</div>
 						)}
-					</div>
-				)}
 
-				{/* Source tree section */}
-				<SectionHeader
-					label="Source"
-					count={sourceFiles.length}
-					collapsed={isCollapsed("source")}
-					onToggle={() =>
-						dispatch({ type: "TOGGLE_SECTION", section: "source" })
-					}
-				/>
-				{!isCollapsed("source") && (
-					<div className="mb-2">
-						<FileTree
-							entries={sourceFiles}
-							expandedDirs={expandedDirs}
-							onFileClick={handleFileClick}
-							depth={0}
-						/>
-					</div>
-				)}
-
-				{/* Source Control section */}
-				<SectionHeader
-					label="Source Control"
-					collapsed={isCollapsed("git")}
-					onToggle={() =>
-						dispatch({ type: "TOGGLE_SECTION", section: "git" })
-					}
-					icon={<GitBranch size={10} className="text-stone-400" />}
-				/>
-				{!isCollapsed("git") && (
-					<div className="mb-2">
-						<SourceControlSection />
-					</div>
-				)}
-
-				{/* Agents section */}
-				<SectionHeader
-					label="Agents"
-					collapsed={isCollapsed("agents")}
-					onToggle={() =>
-						dispatch({ type: "TOGGLE_SECTION", section: "agents" })
-					}
-					icon={<Robot size={10} className="text-stone-400" />}
-				/>
-				{!isCollapsed("agents") && (
-					<div className="mb-2">
-						<AgentsSection />
-					</div>
-				)}
-
-				{/* Views section */}
-				<SectionHeader
-					label="Views"
-					collapsed={isCollapsed("views")}
-					onToggle={() =>
-						dispatch({ type: "TOGGLE_SECTION", section: "views" })
-					}
-				/>
-				{!isCollapsed("views") && (
-					<div className="mb-2">
-						<button
-							onClick={openGraph}
-							className="w-full text-left px-3 py-1 text-xs text-stone-700 hover:bg-surface-sunken transition-colors flex items-center gap-1.5"
-						>
-							<Flask size={12} className="text-stone-400" />
-							Dependency Graph
-						</button>
-						<button
-							onClick={() =>
-								dispatch({
-									type: "OPEN_TAB",
-									tab: {
-										id: "charts-browser",
-										type: "charts-browser",
-										label: "Charts",
-										data: {},
-									},
-								})
+						{/* Agents section */}
+						<SectionHeader
+							label="Agents"
+							collapsed={isCollapsed("agents")}
+							onToggle={() =>
+								dispatch({ type: "TOGGLE_SECTION", section: "agents" })
 							}
-							className="w-full text-left px-3 py-1 text-xs text-stone-700 hover:bg-surface-sunken transition-colors flex items-center gap-1.5"
-						>
-							<ChartLine size={12} className="text-stone-400" />
-							Experiment Charts
-						</button>
-					</div>
+							icon={<Robot size={10} className="text-stone-400" />}
+						/>
+						{!isCollapsed("agents") && (
+							<div className="mb-2">
+								<AgentsSection />
+							</div>
+						)}
+					</>
+				) : (
+					<>
+						{/* Source tree section */}
+						<SectionHeader
+							label="Source"
+							count={sourceFiles.length}
+							collapsed={isCollapsed("source")}
+							onToggle={() =>
+								dispatch({ type: "TOGGLE_SECTION", section: "source" })
+							}
+						/>
+						{!isCollapsed("source") && (
+							<div className="mb-2">
+								<FileTree
+									entries={sourceFiles}
+									expandedDirs={expandedDirs}
+									onFileClick={handleFileClick}
+									depth={0}
+								/>
+							</div>
+						)}
+
+						{/* Source Control section */}
+						<SectionHeader
+							label="Source Control"
+							collapsed={isCollapsed("git")}
+							onToggle={() =>
+								dispatch({ type: "TOGGLE_SECTION", section: "git" })
+							}
+							icon={<GitBranch size={10} className="text-stone-400" />}
+						/>
+						{!isCollapsed("git") && (
+							<div className="mb-2">
+								<SourceControlSection />
+							</div>
+						)}
+					</>
 				)}
 			</div>
 

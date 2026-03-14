@@ -6,7 +6,7 @@ import {
 	useEffect,
 	type ReactNode,
 } from "react";
-import type { ProgramJson, GitStatus, AgentInfo, AgentType } from "../../shared/types";
+import type { ProgramJson, GitStatus, AgentInfo, AgentType, SidebarView, WorkspaceDetail } from "../../shared/types";
 import { rpcRequest } from "../rpc";
 
 // --- Tab types ---
@@ -53,6 +53,7 @@ interface WorkspaceState {
 	// Sidebar
 	sidebarVisible: boolean;
 	sidebarWidth: number;
+	activeSidebarView: SidebarView;
 	selectedSidebarItem: string | null;
 	collapsedSections: Set<string>;
 	searchFilter: string;
@@ -81,11 +82,13 @@ interface WorkspaceState {
 	programs: ProgramJson[];
 	workspaceName: string;
 	tracksDir: string;
+	workspaceDetail: WorkspaceDetail | null;
 }
 
 const initialState: WorkspaceState = {
 	sidebarVisible: true,
 	sidebarWidth: 240,
+	activeSidebarView: "research",
 	selectedSidebarItem: null,
 	collapsedSections: new Set(),
 	searchFilter: "",
@@ -104,6 +107,7 @@ const initialState: WorkspaceState = {
 	programs: [],
 	workspaceName: "Research Workspace",
 	tracksDir: "",
+	workspaceDetail: null,
 };
 
 // --- Actions ---
@@ -123,7 +127,9 @@ type Action =
 	| { type: "REMOVE_TERMINAL_SESSION"; id: string }
 	| { type: "SET_ACTIVE_TERMINAL"; index: number }
 	| { type: "UPDATE_TERMINAL_SESSION"; id: string; updates: Partial<TerminalSession> }
+	| { type: "SET_SIDEBAR_VIEW"; view: SidebarView }
 	| { type: "SET_PROGRAMS"; programs: ProgramJson[] }
+	| { type: "SET_WORKSPACE_DETAIL"; detail: WorkspaceDetail }
 	| { type: "SET_WORKSPACE_NAME"; name: string }
 	| { type: "SET_TRACKS_DIR"; tracksDir: string }
 	| { type: "SET_GIT_STATUS"; gitStatus: GitStatus }
@@ -220,8 +226,19 @@ function reducer(state: WorkspaceState, action: Action): WorkspaceState {
 			return { ...state, terminalSessions: sessions };
 		}
 
+		case "SET_SIDEBAR_VIEW":
+			return { ...state, activeSidebarView: action.view };
+
 		case "SET_PROGRAMS":
 			return { ...state, programs: action.programs };
+
+		case "SET_WORKSPACE_DETAIL":
+			return {
+				...state,
+				workspaceDetail: action.detail,
+				workspaceName: action.detail.name,
+				tracksDir: action.detail.tracksDir,
+			};
 
 		case "SET_WORKSPACE_NAME":
 			return { ...state, workspaceName: action.name };
@@ -271,6 +288,7 @@ interface WorkspaceContext {
 	) => void;
 	openMarkdown: (id: string, label: string, content: string) => void;
 	openTerminal: (name?: string, cwd?: string) => void;
+	openWorkspaceOverview: () => void;
 }
 
 const Ctx = createContext<WorkspaceContext | null>(null);
@@ -350,6 +368,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 		[dispatch, state.terminalSessions.length],
 	);
 
+	const openWorkspaceOverview = useCallback(() => {
+		const detail = state.workspaceDetail;
+		const sections: string[] = [];
+		if (detail?.programMd) {
+			sections.push("# Program\n\n" + detail.programMd);
+		}
+		if (detail?.readme) {
+			sections.push("# Code README\n\n" + detail.readme);
+		}
+		if (detail?.workspaceReadme) {
+			sections.push("# Workspace README\n\n" + detail.workspaceReadme);
+		}
+		const content = sections.join("\n\n---\n\n") || "No documentation found.";
+		const tab: Tab = {
+			id: "workspace-overview",
+			type: "markdown",
+			label: state.workspaceName || "Workspace",
+			data: { content },
+		};
+		dispatch({ type: "OPEN_TAB", tab });
+	}, [state.workspaceDetail, state.workspaceName, dispatch]);
+
 	// Load default agent type from settings on mount
 	useEffect(() => {
 		rpcRequest.getSettings({}).then((settings) => {
@@ -422,7 +462,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
 	return (
 		<Ctx.Provider
-			value={{ state, dispatch, openProgram, openGraph, openFile, openMarkdown, openTerminal }}
+			value={{ state, dispatch, openProgram, openGraph, openFile, openMarkdown, openTerminal, openWorkspaceOverview }}
 		>
 			{children}
 		</Ctx.Provider>

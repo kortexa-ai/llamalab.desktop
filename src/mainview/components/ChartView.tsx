@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { ArrowsClockwise, ChartLine, ChartBar } from "@phosphor-icons/react";
 import { rpcRequest } from "../rpc";
 import { useWorkspace } from "../hooks/useWorkspace";
@@ -197,10 +197,15 @@ export function ChartPanel({ chartId }: { chartId: string }) {
 const CHART_PAD = { top: 20, right: 30, bottom: 50, left: 65 };
 
 function LineChart({ dataset }: { dataset: ChartDataset }) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [hover, setHover] = useState<{ x: number; svgX: number; points: { label: string; value: number; color: string }[] } | null>(null);
+
 	const width = 900;
 	const height = 500;
 	const plotW = width - CHART_PAD.left - CHART_PAD.right;
 	const plotH = height - CHART_PAD.top - CHART_PAD.bottom;
+	const legendH = dataset.series.length > 1 ? 30 : 0;
+	const totalH = height + legendH;
 
 	const { xMin, xMax, yMin, yMax } = useMemo(() => {
 		let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
@@ -217,130 +222,310 @@ function LineChart({ dataset }: { dataset: ChartDataset }) {
 		return { xMin, xMax, yMin: yMin - yPad, yMax: yMax + yPad };
 	}, [dataset]);
 
+	// Pre-sort series points
+	const sortedSeries = useMemo(() =>
+		dataset.series.map((s) => ({
+			...s,
+			sorted: [...s.points].sort((a, b) => a.x - b.x),
+		})),
+	[dataset]);
+
 	function scaleX(v: number) {
 		return CHART_PAD.left + ((v - xMin) / (xMax - xMin || 1)) * plotW;
 	}
 	function scaleY(v: number) {
 		return CHART_PAD.top + plotH - ((v - yMin) / (yMax - yMin || 1)) * plotH;
 	}
+	function unscaleX(px: number) {
+		return xMin + ((px - CHART_PAD.left) / plotW) * (xMax - xMin || 1);
+	}
+
+	// Build smooth monotone cubic bezier path
+	function smoothPath(pts: { x: number; y: number }[]): string {
+		if (pts.length === 0) return "";
+		if (pts.length === 1) return `M ${scaleX(pts[0].x)} ${scaleY(pts[0].y)}`;
+
+		const scaled = pts.map((p) => ({ x: scaleX(p.x), y: scaleY(p.y) }));
+
+		// Monotone cubic Hermite interpolation (Fritsch-Carlson)
+		const n = scaled.length;
+		const dx: number[] = [];
+		const dy: number[] = [];
+		const m: number[] = [];
+
+		for (let i = 0; i < n - 1; i++) {
+			dx.push(scaled[i + 1].x - scaled[i].x);
+			dy.push(scaled[i + 1].y - scaled[i].y);
+			m.push(dy[i] / (dx[i] || 1));
+		}
+
+		const tangents: number[] = [m[0]];
+		for (let i = 1; i < n - 1; i++) {
+			if (m[i - 1] * m[i] <= 0) {
+				tangents.push(0);
+			} else {
+				tangents.push((m[i - 1] + m[i]) / 2);
+			}
+		}
+		tangents.push(m[n - 2]);
+
+		// Clamp tangents for monotonicity
+		for (let i = 0; i < n - 1; i++) {
+			if (Math.abs(m[i]) < 1e-10) {
+				tangents[i] = 0;
+				tangents[i + 1] = 0;
+			} else {
+				const alpha = tangents[i] / m[i];
+				const beta = tangents[i + 1] / m[i];
+				const s = alpha * alpha + beta * beta;
+				if (s > 9) {
+					const t = 3 / Math.sqrt(s);
+					tangents[i] = t * alpha * m[i];
+					tangents[i + 1] = t * beta * m[i];
+				}
+			}
+		}
+
+		let d = `M ${scaled[0].x} ${scaled[0].y}`;
+		for (let i = 0; i < n - 1; i++) {
+			const t = dx[i] / 3;
+			const cp1x = scaled[i].x + t;
+			const cp1y = scaled[i].y + t * tangents[i];
+			const cp2x = scaled[i + 1].x - t;
+			const cp2y = scaled[i + 1].y - t * tangents[i + 1];
+			d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${scaled[i + 1].x} ${scaled[i + 1].y}`;
+		}
+		return d;
+	}
+
+	const showDots = useMemo(() => {
+		return sortedSeries.every((s) => s.sorted.length < 100);
+	}, [sortedSeries]);
+
+	const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+		const svg = e.currentTarget;
+		const rect = svg.getBoundingClientRect();
+		const svgX = ((e.clientX - rect.left) / rect.width) * width;
+
+		if (svgX < CHART_PAD.left || svgX > CHART_PAD.left + plotW) {
+			setHover(null);
+			return;
+		}
+
+		const dataX = unscaleX(svgX);
+
+		// Find nearest point in each series
+		const points: { label: string; value: number; color: string }[] = [];
+		for (let si = 0; si < sortedSeries.length; si++) {
+			const sorted = sortedSeries[si].sorted;
+			if (sorted.length === 0) continue;
+
+			// Binary search for nearest x
+			let lo = 0, hi = sorted.length - 1;
+			while (lo < hi) {
+				const mid = (lo + hi) >> 1;
+				if (sorted[mid].x < dataX) lo = mid + 1;
+				else hi = mid;
+			}
+			// Check adjacent points for closest
+			let best = lo;
+			if (lo > 0 && Math.abs(sorted[lo - 1].x - dataX) < Math.abs(sorted[lo].x - dataX)) {
+				best = lo - 1;
+			}
+
+			points.push({
+				label: sortedSeries[si].label,
+				value: sorted[best].y,
+				color: COLORS[si % COLORS.length],
+			});
+		}
+
+		setHover({ x: dataX, svgX, points });
+	}, [sortedSeries, width, plotW]);
+
+	const handleMouseLeave = useCallback(() => setHover(null), []);
 
 	// Grid lines
 	const yTicks = niceTicksNum(yMin, yMax, 6);
 	const xTicks = niceTicksNum(xMin, xMax, 8);
 
 	return (
-		<svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full" style={{ maxHeight: "100%" }}>
-			{/* Background */}
-			<rect x={CHART_PAD.left} y={CHART_PAD.top} width={plotW} height={plotH} fill="#1C1917" rx={4} />
+		<div ref={containerRef} className="relative w-full h-full">
+			<svg
+				viewBox={`0 0 ${width} ${totalH}`}
+				className="w-full h-full"
+				style={{ maxHeight: "100%" }}
+				onMouseMove={handleMouseMove}
+				onMouseLeave={handleMouseLeave}
+			>
+				{/* Background */}
+				<rect x={CHART_PAD.left} y={CHART_PAD.top} width={plotW} height={plotH} fill="#FAFAF8" rx={4} stroke="#E8E6E1" strokeWidth={1} />
 
-			{/* Grid lines */}
-			{yTicks.map((tick) => (
-				<g key={`y-${tick}`}>
-					<line
-						x1={CHART_PAD.left}
-						y1={scaleY(tick)}
-						x2={CHART_PAD.left + plotW}
-						y2={scaleY(tick)}
-						stroke="#44403C"
-						strokeWidth={0.5}
-					/>
-					<text
-						x={CHART_PAD.left - 8}
-						y={scaleY(tick)}
-						textAnchor="end"
-						dominantBaseline="middle"
-						className="text-2xs fill-stone-500"
-						fontSize={10}
-					>
-						{formatNum(tick)}
-					</text>
-				</g>
-			))}
-			{xTicks.map((tick) => (
-				<g key={`x-${tick}`}>
-					<line
-						x1={scaleX(tick)}
-						y1={CHART_PAD.top}
-						x2={scaleX(tick)}
-						y2={CHART_PAD.top + plotH}
-						stroke="#44403C"
-						strokeWidth={0.5}
-					/>
-					<text
-						x={scaleX(tick)}
-						y={CHART_PAD.top + plotH + 16}
-						textAnchor="middle"
-						className="text-2xs fill-stone-500"
-						fontSize={10}
-					>
-						{formatNum(tick)}
-					</text>
-				</g>
-			))}
-
-			{/* Series lines */}
-			{dataset.series.map((series, si) => {
-				const color = COLORS[si % COLORS.length];
-				const sorted = [...series.points].sort((a, b) => a.x - b.x);
-				if (sorted.length === 0) return null;
-
-				const pathD = sorted
-					.map((p, i) => `${i === 0 ? "M" : "L"} ${scaleX(p.x)} ${scaleY(p.y)}`)
-					.join(" ");
-
-				return (
-					<g key={si}>
-						<path d={pathD} fill="none" stroke={color} strokeWidth={1.5} opacity={0.9} />
+				{/* Grid lines */}
+				{yTicks.map((tick) => (
+					<g key={`y-${tick}`}>
+						<line
+							x1={CHART_PAD.left}
+							y1={scaleY(tick)}
+							x2={CHART_PAD.left + plotW}
+							y2={scaleY(tick)}
+							stroke="#E8E6E1"
+							strokeWidth={0.5}
+							strokeDasharray="4 4"
+						/>
+						<text
+							x={CHART_PAD.left - 8}
+							y={scaleY(tick)}
+							textAnchor="end"
+							dominantBaseline="middle"
+							fill="#78716C"
+							fontSize={11}
+						>
+							{formatNum(tick)}
+						</text>
 					</g>
-				);
-			})}
+				))}
+				{xTicks.map((tick) => (
+					<g key={`x-${tick}`}>
+						<line
+							x1={scaleX(tick)}
+							y1={CHART_PAD.top}
+							x2={scaleX(tick)}
+							y2={CHART_PAD.top + plotH}
+							stroke="#E8E6E1"
+							strokeWidth={0.5}
+							strokeDasharray="4 4"
+						/>
+						<text
+							x={scaleX(tick)}
+							y={CHART_PAD.top + plotH + 16}
+							textAnchor="middle"
+							fill="#78716C"
+							fontSize={11}
+						>
+							{formatNum(tick)}
+						</text>
+					</g>
+				))}
 
-			{/* Axis labels */}
-			<text
-				x={CHART_PAD.left + plotW / 2}
-				y={height - 8}
-				textAnchor="middle"
-				className="fill-stone-400"
-				fontSize={11}
-			>
-				{dataset.xLabel}
-			</text>
-			<text
-				x={14}
-				y={CHART_PAD.top + plotH / 2}
-				textAnchor="middle"
-				transform={`rotate(-90, 14, ${CHART_PAD.top + plotH / 2})`}
-				className="fill-stone-400"
-				fontSize={11}
-			>
-				{dataset.yLabel}
-			</text>
+				{/* Series lines — smooth cubic bezier */}
+				{sortedSeries.map((series, si) => {
+					const color = COLORS[si % COLORS.length];
+					if (series.sorted.length === 0) return null;
 
-			{/* Legend */}
-			{dataset.series.length > 1 && (
-				<g>
-					{dataset.series.map((series, si) => {
-						const color = COLORS[si % COLORS.length];
-						const lx = CHART_PAD.left + 10;
-						const ly = CHART_PAD.top + 14 + si * 16;
-						return (
-							<g key={si}>
-								<line x1={lx} y1={ly} x2={lx + 16} y2={ly} stroke={color} strokeWidth={2} />
-								<text x={lx + 22} y={ly} dominantBaseline="middle" className="fill-stone-400" fontSize={10}>
-									{series.label}
-								</text>
-							</g>
-						);
-					})}
-				</g>
+					const pathD = smoothPath(series.sorted);
+
+					return (
+						<g key={si}>
+							<path
+								d={pathD}
+								fill="none"
+								stroke={color}
+								strokeWidth={2}
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								opacity={0.9}
+							/>
+							{/* Data point dots (only for small datasets) */}
+							{showDots && series.sorted.map((p, pi) => (
+								<circle
+									key={pi}
+									cx={scaleX(p.x)}
+									cy={scaleY(p.y)}
+									r={2.5}
+									fill={color}
+									opacity={0.8}
+								/>
+							))}
+						</g>
+					);
+				})}
+
+				{/* Hover vertical guideline */}
+				{hover && (
+					<line
+						x1={hover.svgX}
+						y1={CHART_PAD.top}
+						x2={hover.svgX}
+						y2={CHART_PAD.top + plotH}
+						stroke="#78716C"
+						strokeWidth={1}
+						strokeDasharray="3 3"
+						opacity={0.5}
+					/>
+				)}
+
+				{/* Axis labels */}
+				<text
+					x={CHART_PAD.left + plotW / 2}
+					y={height - 8}
+					textAnchor="middle"
+					fill="#78716C"
+					fontSize={11}
+				>
+					{dataset.xLabel}
+				</text>
+				<text
+					x={14}
+					y={CHART_PAD.top + plotH / 2}
+					textAnchor="middle"
+					transform={`rotate(-90, 14, ${CHART_PAD.top + plotH / 2})`}
+					fill="#78716C"
+					fontSize={11}
+				>
+					{dataset.yLabel}
+				</text>
+
+				{/* Legend — below chart, horizontal */}
+				{dataset.series.length > 1 && (
+					<g>
+						{dataset.series.map((series, si) => {
+							const color = COLORS[si % COLORS.length];
+							const lx = CHART_PAD.left + si * 140;
+							const ly = height + 14;
+							return (
+								<g key={si}>
+									<line x1={lx} y1={ly} x2={lx + 16} y2={ly} stroke={color} strokeWidth={2} strokeLinecap="round" />
+									<text x={lx + 22} y={ly} dominantBaseline="middle" fill="#78716C" fontSize={11}>
+										{series.label}
+									</text>
+								</g>
+							);
+						})}
+					</g>
+				)}
+			</svg>
+
+			{/* HTML tooltip overlay — positioned absolutely, sibling of SVG */}
+			{hover && containerRef.current && (
+				<div
+					className="absolute pointer-events-none bg-white border border-border rounded shadow-sm px-2.5 py-1.5 text-xs"
+					style={{
+						left: `${(hover.svgX / width) * 100}%`,
+						top: `${((CHART_PAD.top + 8) / totalH) * 100}%`,
+						transform: hover.svgX > width * 0.7 ? "translateX(-110%)" : "translateX(10px)",
+					}}
+				>
+					<div className="text-stone-500 text-2xs mb-0.5">{dataset.xLabel}: {formatNum(hover.x)}</div>
+					{hover.points.map((p, i) => (
+						<div key={i} className="flex items-center gap-1.5">
+							<span className="w-2 h-0.5 rounded-full" style={{ backgroundColor: p.color }} />
+							<span className="text-stone-600">{p.label}:</span>
+							<span className="font-mono text-stone-800">{formatNum(p.value)}</span>
+						</div>
+					))}
+				</div>
 			)}
-		</svg>
+		</div>
 	);
 }
 
 // --- SVG Bar Chart ---
 
 function BarChart({ dataset }: { dataset: ChartDataset }) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
 	const labels = dataset.labels || [];
 	const n = labels.length;
 	if (n === 0) return <div className="text-sm text-stone-400 p-4">No data</div>;
@@ -349,6 +534,8 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 	const height = 500;
 	const plotW = width - CHART_PAD.left - CHART_PAD.right;
 	const plotH = height - CHART_PAD.top - CHART_PAD.bottom;
+	const legendH = dataset.series.length > 1 ? 30 : 0;
+	const totalH = height + legendH;
 
 	const { yMin, yMax } = useMemo(() => {
 		let yMin = Infinity, yMax = -Infinity;
@@ -372,11 +559,33 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 
 	const yTicks = niceTicksNum(yMin, yMax, 6);
 
+	const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+		const svg = e.currentTarget;
+		const rect = svg.getBoundingClientRect();
+		const svgX = ((e.clientX - rect.left) / rect.width) * width;
+
+		if (svgX < CHART_PAD.left || svgX > CHART_PAD.left + plotW) {
+			setHoverIdx(null);
+			return;
+		}
+
+		const idx = Math.floor((svgX - CHART_PAD.left) / (plotW / n));
+		setHoverIdx(Math.max(0, Math.min(n - 1, idx)));
+	}, [width, plotW, n]);
+
+	const handleMouseLeave = useCallback(() => setHoverIdx(null), []);
+
 	return (
-		<div className="overflow-x-auto h-full">
-			<svg viewBox={`0 0 ${width} ${height}`} className="h-full" style={{ minWidth: width }}>
+		<div ref={containerRef} className="relative overflow-x-auto h-full">
+			<svg
+				viewBox={`0 0 ${width} ${totalH}`}
+				className="h-full"
+				style={{ minWidth: width }}
+				onMouseMove={handleMouseMove}
+				onMouseLeave={handleMouseLeave}
+			>
 				{/* Background */}
-				<rect x={CHART_PAD.left} y={CHART_PAD.top} width={plotW} height={plotH} fill="#1C1917" rx={4} />
+				<rect x={CHART_PAD.left} y={CHART_PAD.top} width={plotW} height={plotH} fill="#FAFAF8" rx={4} stroke="#E8E6E1" strokeWidth={1} />
 
 				{/* Grid */}
 				{yTicks.map((tick) => (
@@ -386,16 +595,17 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 							y1={scaleY(tick)}
 							x2={CHART_PAD.left + plotW}
 							y2={scaleY(tick)}
-							stroke="#44403C"
+							stroke="#E8E6E1"
 							strokeWidth={0.5}
+							strokeDasharray="4 4"
 						/>
 						<text
 							x={CHART_PAD.left - 8}
 							y={scaleY(tick)}
 							textAnchor="end"
 							dominantBaseline="middle"
-							className="text-2xs fill-stone-500"
-							fontSize={10}
+							fill="#78716C"
+							fontSize={11}
 						>
 							{formatNum(tick)}
 						</text>
@@ -417,29 +627,16 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 									si * subBarW;
 								const barH = ((p.y - yMin) / (yMax - yMin || 1)) * plotH;
 								return (
-									<g key={i}>
-										<rect
-											x={x}
-											y={scaleY(p.y)}
-											width={subBarW - 1}
-											height={barH}
-											fill={color}
-											opacity={0.85}
-											rx={1}
-										/>
-										{/* Value label on top of bar (for reasonable counts) */}
-										{n <= 40 && (
-											<text
-												x={x + subBarW / 2}
-												y={scaleY(p.y) - 4}
-												textAnchor="middle"
-												className="fill-stone-400"
-												fontSize={8}
-											>
-												{formatNum(p.y)}
-											</text>
-										)}
-									</g>
+									<rect
+										key={i}
+										x={x}
+										y={scaleY(p.y)}
+										width={subBarW - 1}
+										height={barH}
+										fill={color}
+										opacity={hoverIdx === i ? 1 : 0.9}
+										rx={3}
+									/>
 								);
 							})}
 						</g>
@@ -460,7 +657,7 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 							y={CHART_PAD.top + plotH + 12}
 							textAnchor="end"
 							transform={`rotate(-45, ${x}, ${CHART_PAD.top + plotH + 12})`}
-							className="fill-stone-500"
+							fill="#78716C"
 							fontSize={9}
 						>
 							{label.length > 20 ? label.slice(0, 18) + "..." : label}
@@ -474,23 +671,23 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 					y={CHART_PAD.top + plotH / 2}
 					textAnchor="middle"
 					transform={`rotate(-90, 14, ${CHART_PAD.top + plotH / 2})`}
-					className="fill-stone-400"
+					fill="#78716C"
 					fontSize={11}
 				>
 					{dataset.yLabel}
 				</text>
 
-				{/* Legend */}
+				{/* Legend — below chart, horizontal */}
 				{seriesCount > 1 && (
 					<g>
 						{dataset.series.map((series, si) => {
 							const color = COLORS[si % COLORS.length];
-							const lx = CHART_PAD.left + 10;
-							const ly = CHART_PAD.top + 14 + si * 16;
+							const lx = CHART_PAD.left + si * 140;
+							const ly = height + 14;
 							return (
 								<g key={si}>
-									<rect x={lx} y={ly - 5} width={12} height={10} fill={color} rx={1} />
-									<text x={lx + 18} y={ly} dominantBaseline="middle" className="fill-stone-400" fontSize={10}>
+									<rect x={lx} y={ly - 5} width={12} height={10} fill={color} rx={3} />
+									<text x={lx + 18} y={ly} dominantBaseline="middle" fill="#78716C" fontSize={11}>
 										{series.label}
 									</text>
 								</g>
@@ -499,6 +696,31 @@ function BarChart({ dataset }: { dataset: ChartDataset }) {
 					</g>
 				)}
 			</svg>
+
+			{/* HTML tooltip overlay for bar chart */}
+			{hoverIdx !== null && containerRef.current && (
+				<div
+					className="absolute pointer-events-none bg-white border border-border rounded shadow-sm px-2.5 py-1.5 text-xs"
+					style={{
+						left: `${((CHART_PAD.left + hoverIdx * (plotW / n) + (plotW / n) / 2) / width) * 100}%`,
+						top: `${((CHART_PAD.top + 8) / totalH) * 100}%`,
+						transform: hoverIdx > n * 0.7 ? "translateX(-110%)" : "translateX(10px)",
+					}}
+				>
+					<div className="text-stone-500 text-2xs mb-0.5">{labels[hoverIdx]}</div>
+					{dataset.series.map((series, si) => {
+						const point = series.points[hoverIdx];
+						if (!point) return null;
+						return (
+							<div key={si} className="flex items-center gap-1.5">
+								<span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: COLORS[si % COLORS.length] }} />
+								<span className="text-stone-600">{series.label}:</span>
+								<span className="font-mono text-stone-800">{formatNum(point.y)}</span>
+							</div>
+						);
+					})}
+				</div>
+			)}
 		</div>
 	);
 }

@@ -1,5 +1,9 @@
 import type { RPCSchema } from "electrobun/bun";
 
+// --- Sidebar view type ---
+
+export type SidebarView = "research" | "explorer";
+
 // --- Data types (ported from api.server) ---
 
 export interface ProgramJson {
@@ -104,6 +108,7 @@ export interface WorkspaceDetail {
 	tracksDir: string;
 	readme: string | null;
 	programMd: string | null;
+	workspaceReadme: string | null;
 }
 
 export interface CreateProgramInput {

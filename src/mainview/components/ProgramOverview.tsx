@@ -9,10 +9,12 @@ import {
 	Terminal,
 	Robot,
 	CaretDown,
+	ChartLine,
 } from "@phosphor-icons/react";
 import type { ProgramDetail, ExperimentResult, QueueItem, AgentType } from "../../shared/types";
 import { rpcRequest } from "../rpc";
 import { useWorkspace } from "../hooks/useWorkspace";
+import { MarkdownViewer } from "./MarkdownViewer";
 
 const STATUS_COLORS: Record<string, string> = {
 	active: "text-amber-600",
@@ -120,6 +122,23 @@ export function ProgramOverview({ programId }: { programId: string }) {
 					queue={detail.queue}
 					dispatch={dispatch}
 				/>
+				<button
+					onClick={() =>
+						dispatch({
+							type: "OPEN_TAB",
+							tab: {
+								id: "charts-browser",
+								type: "charts-browser",
+								label: "Charts",
+								data: {},
+							},
+						})
+					}
+					className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-raised border border-border rounded hover:bg-surface-sunken transition-colors text-stone-700"
+				>
+					<ChartLine size={12} />
+					Charts
+				</button>
 			</div>
 
 			{/* Metric + Tags row */}
@@ -240,7 +259,7 @@ export function ProgramOverview({ programId }: { programId: string }) {
 							</thead>
 							<tbody>
 								{detail.results.map((r) => (
-									<ResultRow key={r.experiment_id} result={r} />
+									<ResultRow key={r.experiment_id} result={r} dispatch={dispatch} />
 								))}
 							</tbody>
 						</table>
@@ -254,8 +273,8 @@ export function ProgramOverview({ programId }: { programId: string }) {
 					<h3 className="text-xs font-semibold text-stone-700 mb-2 uppercase tracking-wider">
 						Findings
 					</h3>
-					<div className="border border-border rounded p-3 text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">
-						{detail.finding}
+					<div className="border border-border rounded p-3 text-sm">
+						<MarkdownViewer content={detail.finding} />
 					</div>
 				</div>
 			)}
@@ -387,7 +406,7 @@ function AgentSplitButton({
 	);
 }
 
-function ResultRow({ result }: { result: ExperimentResult }) {
+function ResultRow({ result, dispatch }: { result: ExperimentResult; dispatch: React.Dispatch<any> }) {
 	const delta = result.delta ?? 0;
 	const deltaColor =
 		delta < 0
@@ -414,8 +433,28 @@ function ResultRow({ result }: { result: ExperimentResult }) {
 				{delta.toFixed(4)}
 			</td>
 			<td className={`px-2 py-1 ${statusColor}`}>{result.status}</td>
-			<td className="px-2 py-1 text-stone-400">
+			<td className="px-2 py-1 text-stone-400 flex items-center gap-1">
 				{Math.round(result.duration_seconds)}s
+				{result.log_csv && (
+					<button
+						onClick={() => {
+							const label = result.log_csv!.replace(/.*\//, "").replace(".csv", "");
+							dispatch({
+								type: "OPEN_TAB",
+								tab: {
+									id: `chart-log-${label}`,
+									type: "chart",
+									label,
+									data: { chartId: `log-${label}` },
+								},
+							});
+						}}
+						title="View training chart"
+						className="text-stone-400 hover:text-accent transition-colors"
+					>
+						<ChartLine size={10} />
+					</button>
+				)}
 			</td>
 		</tr>
 	);

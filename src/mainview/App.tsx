@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { WorkspaceProvider, useWorkspace } from "./hooks/useWorkspace";
+import { ActivityBar } from "./components/ActivityBar";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { ContentPane } from "./components/ContentPane";
@@ -21,6 +22,7 @@ function AppShell() {
 	return (
 		<div className="flex flex-col h-screen bg-surface">
 			<div className="flex flex-1 min-h-0">
+				{state.sidebarVisible && <ActivityBar />}
 				{state.sidebarVisible && (
 					<div
 						className="flex-shrink-0 h-full"

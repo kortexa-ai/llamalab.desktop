@@ -477,6 +477,7 @@ export function getWorkspace(): WorkspaceDetail {
 
 	let readme: string | null = null;
 	let programMd: string | null = null;
+	let workspaceReadme: string | null = null;
 	try {
 		const readmePath = path.join(config.codeRoot, "README.md");
 		if (fs.existsSync(readmePath))
@@ -491,6 +492,13 @@ export function getWorkspace(): WorkspaceDetail {
 	} catch {
 		/* skip */
 	}
+	try {
+		const wsReadmePath = path.join(config.researchDir, "README.md");
+		if (fs.existsSync(wsReadmePath))
+			workspaceReadme = fs.readFileSync(wsReadmePath, "utf-8");
+	} catch {
+		/* skip */
+	}
 
 	return {
 		name: config.name,
@@ -498,6 +506,7 @@ export function getWorkspace(): WorkspaceDetail {
 		tracksDir: config.tracksDir,
 		readme,
 		programMd,
+		workspaceReadme,
 	};
 }
 

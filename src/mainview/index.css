@@ -1,27 +1,45 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-* {
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0;
+@theme {
+	/* Warm instrument palette */
+	--color-surface: #FAFAF8;
+	--color-surface-raised: #F3F2EF;
+	--color-surface-sunken: #E8E6E1;
+	--color-border: #D4D1CC;
+	--color-border-subtle: #E8E6E1;
+	--color-accent: #C2410C;
+	--color-accent-hover: #9A3412;
+	--color-accent-subtle: #FFF7ED;
+
+	--font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "SF Mono", "Fira Code", "JetBrains Mono", ui-monospace, monospace;
+
+	--text-2xs: 10px;
+	--text-2xs--line-height: 14px;
 }
 
-html,
-body,
-#root {
-	height: 100%;
-	overflow: hidden;
-}
+@layer base {
+	* {
+		box-sizing: border-box;
+		margin: 0;
+		padding: 0;
+	}
 
-body {
-	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
-		system-ui, sans-serif;
-	background: #fafaf8;
-	color: #1c1917;
-	font-size: 13px;
-	-webkit-font-smoothing: antialiased;
+	html,
+	body,
+	#root {
+		height: 100%;
+		overflow: hidden;
+	}
+
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+			system-ui, sans-serif;
+		background: #fafaf8;
+		color: #1c1917;
+		font-size: 13px;
+		-webkit-font-smoothing: antialiased;
+	}
 }
 
 /* Title bar drag region — electrobun detects the class .electrobun-webkit-app-region-drag */

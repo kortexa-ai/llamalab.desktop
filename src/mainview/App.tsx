@@ -10,9 +10,10 @@ import { CommandPalette } from "./components/CommandPalette";
 import { SetupWizard } from "./components/SetupWizard";
 import { OpenWorkspaceDialog } from "./components/OpenWorkspaceDialog";
 import { NewProgramDialog } from "./components/NewProgramDialog";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { rpcRequest } from "./rpc";
 
-type Dialog = "none" | "new-workspace" | "open-workspace" | "new-program";
+type Dialog = "none" | "new-workspace" | "open-workspace" | "new-program" | "settings";
 
 function AppShell() {
 	const { state } = useWorkspace();
@@ -60,7 +61,7 @@ function App() {
 	useEffect(() => {
 		const wsHandler = (e: Event) => {
 			const detail = (e as CustomEvent).detail as Dialog;
-			if (detail === "new-workspace" || detail === "open-workspace" || detail === "new-program") {
+			if (detail === "new-workspace" || detail === "open-workspace" || detail === "new-program" || detail === "settings") {
 				setDialog(detail);
 			}
 		};
@@ -69,6 +70,7 @@ function App() {
 			if (action === "new-workspace") setDialog("new-workspace");
 			if (action === "open-workspace") setDialog("open-workspace");
 			if (action === "new-program") setDialog("new-program");
+			if (action === "settings") setDialog("settings");
 		};
 		window.addEventListener("workspace-dialog", wsHandler);
 		window.addEventListener("menuAction", menuHandler);
@@ -76,6 +78,18 @@ function App() {
 			window.removeEventListener("workspace-dialog", wsHandler);
 			window.removeEventListener("menuAction", menuHandler);
 		};
+	}, []);
+
+	// Titlebar double-click to maximize/restore
+	useEffect(() => {
+		const handler = (e: MouseEvent) => {
+			const target = e.target as HTMLElement;
+			if (target.closest(".titlebar-drag")) {
+				rpcRequest.toggleMaximize({});
+			}
+		};
+		window.addEventListener("dblclick", handler);
+		return () => window.removeEventListener("dblclick", handler);
 	}, []);
 
 	function handleWorkspaceSwitch() {
@@ -121,6 +135,9 @@ function App() {
 			)}
 			{dialog === "new-program" && (
 				<NewProgramDialog onClose={() => setDialog("none")} />
+			)}
+			{dialog === "settings" && (
+				<SettingsDialog onClose={() => setDialog("none")} />
 			)}
 		</WorkspaceProvider>
 	);

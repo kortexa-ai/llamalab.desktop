@@ -3,39 +3,27 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AgentType, AgentInfo } from "../shared/types";
-import { buildPrompt } from "./prompt-builder";
+import { buildMission } from "./prompt-builder";
 import { HOME, requireWorkspaceConfig } from "./config";
 
 const HERD_DIR = path.join(HOME, ".claude-herd");
 const HERD_LOG = path.join(HERD_DIR, "log");
 const ANIMALS_DIR = path.join(HERD_DIR, "animals");
 
-// Agent command builders — codeRoot is resolved at call time, not import time
-function getAgentCommands(): Record<AgentType, (promptFile: string, prompt: string) => string[]> {
-	const config = requireWorkspaceConfig();
-	return {
-		claude: (promptFile) => [
-			"claude",
-			"--dangerously-skip-permissions",
-			"--add-dir", config.codeRoot,
-			"-p", `$(cat ${promptFile})`,
-		],
-		codex: (_promptFile, prompt) => [
-			"codex",
-			"--full-auto",
-			"-q", prompt,
-		],
-		openclaw: (_promptFile, prompt) => [
-			"openclaw",
-			"agent",
-			"--prompt", prompt,
-		],
-		hermes: (_promptFile, prompt) => [
-			"hermes",
-			"run",
-			"--prompt", prompt,
-		],
-	};
+const AGENT_TYPES: AgentType[] = ["claude", "codex", "openclaw", "hermes"];
+
+function buildAgentShellCmd(type: AgentType, missionPath: string, cwd: string): string {
+	const prompt = `Read ${missionPath} and complete the mission described within.`;
+	switch (type) {
+		case "claude":
+			return `cd ${cwd} && claude --dangerously-skip-permissions -p "${prompt}"`;
+		case "codex":
+			return `cd ${cwd} && codex --yolo -q "${prompt}"`;
+		case "openclaw":
+			return `cd ${cwd} && openclaw agent --prompt "${prompt}"`;
+		case "hermes":
+			return `cd ${cwd} && hermes run --prompt "${prompt}"`;
+	}
 }
 
 function generateAnimalName(): string {
@@ -63,6 +51,23 @@ async function runCommand(cmd: string[]): Promise<string> {
 	return stdout.trim();
 }
 
+export async function checkAgentAvailability(): Promise<Record<AgentType, boolean>> {
+	const result = {} as Record<AgentType, boolean>;
+	for (const type of AGENT_TYPES) {
+		try {
+			const proc = Bun.spawn(["which", type], {
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			const code = await proc.exited;
+			result[type] = code === 0;
+		} catch {
+			result[type] = false;
+		}
+	}
+	return result;
+}
+
 export async function spawnAgent(opts: {
 	type: AgentType;
 	programId?: string;
@@ -74,26 +79,21 @@ export async function spawnAgent(opts: {
 	// Ensure directories exist
 	fs.mkdirSync(ANIMALS_DIR, { recursive: true });
 
-	// Build prompt
-	const { promptFile } = buildPrompt({
+	// Build mission file
+	const { missionPath } = buildMission({
 		agentType: opts.type,
 		programId: opts.programId,
 		task: opts.task,
 	});
 
-	// Build the agent command
+	// Determine cwd: trackDir for program-scoped, codeRoot for workspace-scoped
 	const config = requireWorkspaceConfig();
-	const agentCommands = getAgentCommands();
-	const logFile = path.join(ANIMALS_DIR, `${name}.log`);
-	const cmdParts = agentCommands[opts.type](promptFile, opts.task);
+	const cwd = opts.programId
+		? path.join(config.tracksDir, opts.programId)
+		: config.codeRoot;
 
-	// For claude, we need to cat the prompt file inline
-	let shellCmd: string;
-	if (opts.type === "claude") {
-		shellCmd = `claude --dangerously-skip-permissions --add-dir ${config.codeRoot} -p "$(cat ${promptFile})" 2>&1 | tee ${logFile}`;
-	} else {
-		shellCmd = `${cmdParts.join(" ")} 2>&1 | tee ${logFile}`;
-	}
+	const logFile = path.join(ANIMALS_DIR, `${name}.log`);
+	const shellCmd = `${buildAgentShellCmd(opts.type, missionPath, cwd)} 2>&1 | tee ${logFile}`;
 
 	// Spawn in tmux
 	const tmuxCmd = [

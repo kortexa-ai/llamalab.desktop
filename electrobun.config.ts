@@ -15,11 +15,13 @@ export default {
 		copy: {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
+			"assets": "assets",
 		},
 		// Ignore Vite output in watch mode — HMR handles view rebuilds separately
 		watchIgnore: ["dist/**"],
 		mac: {
 			bundleCEF: false,
+			icons: "icon.iconset",
 			codesign: true,
 			notarize: true,
 		},

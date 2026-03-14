@@ -38,7 +38,13 @@ import {
 	listAgents,
 	getAgentLog,
 	killAgent,
+	checkAgentAvailability,
 } from "./agents";
+import { getDefaultTask } from "./prompt-builder";
+import {
+	getDefaultAgentType,
+	setDefaultAgentType,
+} from "./preferences";
 import {
 	listExperimentLogs,
 	getChartData,
@@ -136,6 +142,24 @@ const rpc = BrowserView.defineRPC<AppRPC>({
 			listAgents: async () => listAgents(),
 			getAgentLog: async ({ name }) => getAgentLog(name),
 			killAgent: async ({ name }) => { await killAgent(name); },
+			checkAgentAvailability: async () => checkAgentAvailability(),
+			getDefaultTask: async ({ programId }) => ({ task: getDefaultTask(programId) }),
+
+			// Settings
+			getSettings: async () => ({
+				defaultAgentType: getDefaultAgentType() as any,
+				availableAgents: await checkAgentAvailability(),
+			}),
+			updateSettings: async ({ defaultAgentType }) => {
+				if (defaultAgentType) setDefaultAgentType(defaultAgentType);
+			},
+
+			// Window
+			toggleMaximize: async (): Promise<{ maximized: boolean }> => {
+				if (mainWindow.isMaximized()) mainWindow.unmaximize();
+				else mainWindow.maximize();
+				return { maximized: mainWindow.isMaximized() };
+			},
 
 			// Setup / workspace management
 			checkSetup: async () => checkSetup(),
@@ -195,32 +219,64 @@ if (getWorkspaceConfig()) {
 	});
 }
 
-// --- System Tray ---
+// --- System Tray (dynamic) ---
+import { resolve } from "node:path";
+const trayIconPath = resolve(import.meta.dir, "../../assets/tray-icon.png");
 const tray = new Tray({
 	title: "Llama Lab",
+	image: trayIconPath,
+	template: true,
+	width: 18,
+	height: 18,
 });
 
+// Initial static menu
 tray.setMenu([
-	{ type: "normal", label: "Show App", action: "show" },
-	{ type: "normal", label: "Hide App", action: "hide" },
+	{ type: "normal", label: "Show Llama Lab", action: "show" },
 	{ type: "divider" },
 	{ type: "normal", label: "Quit", action: "quit" },
 ]);
 
+// Poll for running agents and update tray dynamically
+setInterval(async () => {
+	try {
+		const agents = await listAgents();
+		const running = agents.filter((a) => a.status === "running");
+
+		tray.setTitle(running.length > 0 ? `${running.length}` : "");
+
+		const menu: any[] = [
+			{ type: "normal", label: "Show Llama Lab", action: "show" },
+		];
+		if (running.length > 0) {
+			menu.push({ type: "divider" });
+			for (const a of running) {
+				const label = `${a.name} (${a.type})${a.programId ? ` — ${a.programId}` : ""}`;
+				menu.push({ type: "normal", label, action: `show-agent:${a.name}` });
+			}
+		}
+		menu.push({ type: "divider" });
+		menu.push({ type: "normal", label: "Quit", action: "quit" });
+		tray.setMenu(menu);
+	} catch {
+		// Ignore tray update errors
+	}
+}, 5000);
+
 tray.on("tray-clicked", (event: any) => {
-	const action = event.data?.action;
-	switch (action) {
-		case "show":
-			mainWindow.focus();
-			break;
-		case "hide":
-			mainWindow.minimize();
-			break;
-		case "quit":
-			terminalManager.killAll();
-			tray.remove();
-			process.exit(0);
-			break;
+	const action = event.data?.action as string | undefined;
+	if (!action) return;
+
+	if (action === "show") {
+		mainWindow.focus();
+	} else if (action === "quit") {
+		terminalManager.killAll();
+		tray.remove();
+		process.exit(0);
+	} else if (action.startsWith("show-agent:")) {
+		const agentName = action.slice("show-agent:".length);
+		mainWindow.focus();
+		mainWindow.webview.rpc.send.menuAction({ action: `open-agent-log:${agentName}` });
 	}
 });
 
@@ -229,6 +285,12 @@ ApplicationMenu.setApplicationMenu([
 	{
 		submenu: [
 			{ label: "About Llama Lab", role: "about" },
+			{ type: "separator" },
+			{
+				label: "Settings...",
+				action: "settings",
+				accelerator: "CommandOrControl+,",
+			},
 			{ type: "separator" },
 			{ label: "Hide", role: "hide", accelerator: "h" },
 			{ label: "Hide Others", role: "hideOthers", accelerator: "Alt+h" },

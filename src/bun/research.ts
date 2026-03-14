@@ -7,6 +7,7 @@ import type {
 	ProgramDetail,
 	TrackJson,
 	ExperimentResult,
+	QueueJson,
 	FileEntry,
 	GraphNode,
 	GraphEdge,
@@ -95,6 +96,11 @@ function readResults(program: ProgramJson): ExperimentResult[] {
 	return results || [];
 }
 
+function readQueue(program: ProgramJson): QueueJson | null {
+	const trackDir = getTrackDir(program.id);
+	return readJson<QueueJson>(path.join(trackDir, "queue.json"));
+}
+
 export function getProgramDetail(id: string): ProgramDetail | null {
 	const program = getProgram(id);
 	if (!program) return null;
@@ -104,6 +110,7 @@ export function getProgramDetail(id: string): ProgramDetail | null {
 		finding: readFinding(program),
 		track: readTrack(program),
 		results: readResults(program),
+		queue: readQueue(program),
 	};
 }
 

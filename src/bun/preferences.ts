@@ -18,6 +18,7 @@ export interface AppPreferences {
 		terminalHeight: number;
 	};
 	lastWorkspacePath?: string;
+	defaultAgentType?: string;
 }
 
 const DEFAULT_PREFS: AppPreferences = {
@@ -60,5 +61,16 @@ export function addRecentWorkspace(wsPath: string, name: string): void {
 export function saveWindowState(state: AppPreferences["windowState"]): void {
 	const prefs = readPreferences();
 	prefs.windowState = state;
+	writePreferences(prefs);
+}
+
+export function getDefaultAgentType(): string {
+	const prefs = readPreferences();
+	return prefs.defaultAgentType || "claude";
+}
+
+export function setDefaultAgentType(agentType: string): void {
+	const prefs = readPreferences();
+	prefs.defaultAgentType = agentType;
 	writePreferences(prefs);
 }

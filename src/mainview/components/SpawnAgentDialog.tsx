@@ -13,7 +13,7 @@ const AGENT_TYPES: { value: AgentType; label: string; desc: string }[] = [
 
 export function SpawnAgentDialog() {
 	const { state, dispatch } = useWorkspace();
-	const [agentType, setAgentType] = useState<AgentType>("claude");
+	const [agentType, setAgentType] = useState<AgentType>(state.defaultAgentType || "claude");
 	const [programId, setProgramId] = useState<string>("");
 	const [task, setTask] = useState("");
 	const [spawning, setSpawning] = useState(false);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
 	Circle,
 	ArrowDown,
@@ -8,8 +8,9 @@ import {
 	Play,
 	Terminal,
 	Robot,
+	CaretDown,
 } from "@phosphor-icons/react";
-import type { ProgramDetail, ExperimentResult } from "../../shared/types";
+import type { ProgramDetail, ExperimentResult, QueueItem, AgentType } from "../../shared/types";
 import { rpcRequest } from "../rpc";
 import { useWorkspace } from "../hooks/useWorkspace";
 
@@ -113,13 +114,12 @@ export function ProgramOverview({ programId }: { programId: string }) {
 						</button>
 					</>
 				)}
-				<button
-					onClick={() => dispatch({ type: "SHOW_SPAWN_DIALOG" })}
-					className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-raised border border-border rounded hover:bg-surface-sunken transition-colors text-stone-700"
-				>
-					<Robot size={12} />
-					Spawn Agent
-				</button>
+				<AgentSplitButton
+					programId={detail.id}
+					defaultAgentType={state.defaultAgentType}
+					queue={detail.queue}
+					dispatch={dispatch}
+				/>
 			</div>
 
 			{/* Metric + Tags row */}
@@ -194,6 +194,31 @@ export function ProgramOverview({ programId }: { programId: string }) {
 				</div>
 			)}
 
+			{/* Experiment queue */}
+			{detail.queue && detail.queue.queue.length > 0 && (
+				<div className="mb-4">
+					<h3 className="text-xs font-semibold text-stone-700 mb-2 uppercase tracking-wider">
+						Queue ({detail.queue.queue.length})
+					</h3>
+					<div className="border border-border rounded overflow-hidden">
+						<table className="w-full text-xs">
+							<thead>
+								<tr className="bg-surface-raised text-stone-500 text-left">
+									<th className="px-2 py-1 font-medium w-5">#</th>
+									<th className="px-2 py-1 font-medium">Label</th>
+									<th className="px-2 py-1 font-medium">Config</th>
+								</tr>
+							</thead>
+							<tbody>
+								{detail.queue.queue.map((item, i) => (
+									<QueueRow key={item.label} item={item} index={i + 1} />
+								))}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			)}
+
 			{/* Experiment results */}
 			{detail.results.length > 0 && (
 				<div className="mb-4">
@@ -232,6 +257,130 @@ export function ProgramOverview({ programId }: { programId: string }) {
 					<div className="border border-border rounded p-3 text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">
 						{detail.finding}
 					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function QueueRow({ item, index }: { item: QueueItem; index: number }) {
+	const configStr = Object.entries(item.config)
+		.map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+		.join(", ");
+
+	return (
+		<tr className="border-t border-border hover:bg-surface-sunken transition-colors">
+			<td className="px-2 py-1 text-stone-400">{index}</td>
+			<td className="px-2 py-1 font-mono text-stone-700">{item.label}</td>
+			<td className="px-2 py-1 font-mono text-stone-500 text-2xs">
+				{configStr}
+			</td>
+		</tr>
+	);
+}
+
+const AGENT_LABELS: Record<AgentType, string> = {
+	claude: "Claude",
+	codex: "Codex",
+	openclaw: "OpenClaw",
+	hermes: "Hermes",
+};
+
+function AgentSplitButton({
+	programId,
+	defaultAgentType,
+	queue,
+	dispatch,
+}: {
+	programId: string;
+	defaultAgentType: AgentType;
+	queue: ProgramDetail["queue"];
+	dispatch: React.Dispatch<any>;
+}) {
+	const [dropdownOpen, setDropdownOpen] = useState(false);
+	const [spawning, setSpawning] = useState(false);
+	const dropdownRef = useRef<HTMLDivElement>(null);
+
+	// Close dropdown on outside click
+	useEffect(() => {
+		if (!dropdownOpen) return;
+		const handler = (e: MouseEvent) => {
+			if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+				setDropdownOpen(false);
+			}
+		};
+		document.addEventListener("mousedown", handler);
+		return () => document.removeEventListener("mousedown", handler);
+	}, [dropdownOpen]);
+
+	async function spawnWithType(agentType: AgentType) {
+		setSpawning(true);
+		setDropdownOpen(false);
+		try {
+			// Get queue-aware default task from backend
+			const { task } = await rpcRequest.getDefaultTask({ programId });
+			const result = await rpcRequest.spawnAgent({
+				type: agentType,
+				programId,
+				task,
+			});
+			// Open agent log tab
+			dispatch({
+				type: "OPEN_TAB",
+				tab: {
+					id: `agent-${result.name}`,
+					type: "agent-log",
+					label: result.name,
+					data: { agentName: result.name },
+				},
+			});
+		} catch (err: any) {
+			console.error("Failed to spawn agent:", err);
+		} finally {
+			setSpawning(false);
+		}
+	}
+
+	const nextLabel = queue?.queue?.[0]?.label;
+	const buttonLabel = spawning
+		? "Spawning..."
+		: nextLabel
+			? `Run: ${nextLabel}`
+			: "Run Agent";
+
+	return (
+		<div className="relative" ref={dropdownRef}>
+			<div className="flex">
+				<button
+					onClick={() => spawnWithType(defaultAgentType)}
+					disabled={spawning}
+					className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-raised border border-border border-r-0 rounded-l hover:bg-surface-sunken transition-colors text-stone-700 disabled:opacity-40"
+				>
+					<Robot size={12} />
+					{buttonLabel}
+				</button>
+				<button
+					onClick={() => setDropdownOpen(!dropdownOpen)}
+					disabled={spawning}
+					className="flex items-center px-1 py-1 text-xs bg-surface-raised border border-border rounded-r hover:bg-surface-sunken transition-colors text-stone-700 disabled:opacity-40"
+				>
+					<CaretDown size={10} />
+				</button>
+			</div>
+			{dropdownOpen && (
+				<div className="absolute top-full left-0 mt-1 z-10 bg-surface border border-border rounded shadow-lg min-w-[140px]">
+					{(["claude", "codex", "openclaw", "hermes"] as AgentType[]).map((type) => (
+						<button
+							key={type}
+							onClick={() => spawnWithType(type)}
+							className="w-full text-left px-3 py-1.5 text-xs text-stone-700 hover:bg-surface-sunken transition-colors first:rounded-t last:rounded-b"
+						>
+							{AGENT_LABELS[type]}
+							{type === defaultAgentType && (
+								<span className="text-2xs text-stone-400 ml-1">(default)</span>
+							)}
+						</button>
+					))}
 				</div>
 			)}
 		</div>

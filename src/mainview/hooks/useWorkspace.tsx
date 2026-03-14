@@ -6,7 +6,8 @@ import {
 	useEffect,
 	type ReactNode,
 } from "react";
-import type { ProgramJson, GitStatus, AgentInfo } from "../../shared/types";
+import type { ProgramJson, GitStatus, AgentInfo, AgentType } from "../../shared/types";
+import { rpcRequest } from "../rpc";
 
 // --- Tab types ---
 
@@ -74,6 +75,7 @@ interface WorkspaceState {
 	// Agents
 	agents: AgentInfo[];
 	showSpawnDialog: boolean;
+	defaultAgentType: AgentType;
 
 	// Data
 	programs: ProgramJson[];
@@ -98,6 +100,7 @@ const initialState: WorkspaceState = {
 	gitStatus: null,
 	agents: [],
 	showSpawnDialog: false,
+	defaultAgentType: "claude" as AgentType,
 	programs: [],
 	workspaceName: "Research Workspace",
 	tracksDir: "",
@@ -126,7 +129,8 @@ type Action =
 	| { type: "SET_GIT_STATUS"; gitStatus: GitStatus }
 	| { type: "SET_AGENTS"; agents: AgentInfo[] }
 	| { type: "SHOW_SPAWN_DIALOG" }
-	| { type: "HIDE_SPAWN_DIALOG" };
+	| { type: "HIDE_SPAWN_DIALOG" }
+	| { type: "SET_DEFAULT_AGENT_TYPE"; agentType: AgentType };
 
 function reducer(state: WorkspaceState, action: Action): WorkspaceState {
 	switch (action.type) {
@@ -244,6 +248,9 @@ function reducer(state: WorkspaceState, action: Action): WorkspaceState {
 		case "HIDE_SPAWN_DIALOG":
 			return { ...state, showSpawnDialog: false };
 
+		case "SET_DEFAULT_AGENT_TYPE":
+			return { ...state, defaultAgentType: action.agentType };
+
 		default:
 			return state;
 	}
@@ -342,6 +349,43 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 		},
 		[dispatch, state.terminalSessions.length],
 	);
+
+	// Load default agent type from settings on mount
+	useEffect(() => {
+		rpcRequest.getSettings({}).then((settings) => {
+			dispatch({ type: "SET_DEFAULT_AGENT_TYPE", agentType: settings.defaultAgentType });
+		}).catch(() => {});
+
+		// Listen for settings changes within the session
+		const settingsHandler = (e: Event) => {
+			const detail = (e as CustomEvent).detail;
+			if (detail?.defaultAgentType) {
+				dispatch({ type: "SET_DEFAULT_AGENT_TYPE", agentType: detail.defaultAgentType });
+			}
+		};
+		// Listen for tray "open agent log" actions
+		const menuHandler = (e: Event) => {
+			const action = (e as CustomEvent).detail?.action as string | undefined;
+			if (action?.startsWith("open-agent-log:")) {
+				const agentName = action.slice("open-agent-log:".length);
+				dispatch({
+					type: "OPEN_TAB",
+					tab: {
+						id: `agent-${agentName}`,
+						type: "agent-log",
+						label: agentName,
+						data: { agentName },
+					},
+				});
+			}
+		};
+		window.addEventListener("settingsChanged", settingsHandler);
+		window.addEventListener("menuAction", menuHandler);
+		return () => {
+			window.removeEventListener("settingsChanged", settingsHandler);
+			window.removeEventListener("menuAction", menuHandler);
+		};
+	}, []);
 
 	// Listen for keyboard shortcuts
 	useEffect(() => {

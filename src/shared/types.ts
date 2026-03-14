@@ -18,10 +18,24 @@ export interface ProgramJson {
 	metrics?: Record<string, unknown>;
 }
 
+export interface QueueItem {
+	label: string;
+	config: Record<string, unknown>;
+	priority?: number;
+	budget_seconds?: number;
+	env_overrides?: Record<string, string>;
+}
+
+export interface QueueJson {
+	queue: QueueItem[];
+	completed: string[];
+}
+
 export interface ProgramDetail extends ProgramJson {
 	finding: string | null;
 	track: TrackJson | null;
 	results: ExperimentResult[];
+	queue: QueueJson | null;
 }
 
 export interface TrackJson {
@@ -316,6 +330,30 @@ export type AppRPC = {
 			killAgent: {
 				params: { name: string };
 				response: void;
+			};
+			checkAgentAvailability: {
+				params: {};
+				response: Record<AgentType, boolean>;
+			};
+			getDefaultTask: {
+				params: { programId: string };
+				response: { task: string };
+			};
+
+			// Settings
+			getSettings: {
+				params: {};
+				response: { defaultAgentType: AgentType; availableAgents: Record<AgentType, boolean> };
+			};
+			updateSettings: {
+				params: { defaultAgentType?: AgentType };
+				response: void;
+			};
+
+			// Window
+			toggleMaximize: {
+				params: {};
+				response: { maximized: boolean };
 			};
 
 			// Setup / workspace management

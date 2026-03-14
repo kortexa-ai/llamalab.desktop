@@ -9,9 +9,10 @@ import { SpawnAgentDialog } from "./components/SpawnAgentDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { SetupWizard } from "./components/SetupWizard";
 import { OpenWorkspaceDialog } from "./components/OpenWorkspaceDialog";
+import { NewProgramDialog } from "./components/NewProgramDialog";
 import { rpcRequest } from "./rpc";
 
-type Dialog = "none" | "new-workspace" | "open-workspace";
+type Dialog = "none" | "new-workspace" | "open-workspace" | "new-program";
 
 function AppShell() {
 	const { state } = useWorkspace();
@@ -55,11 +56,11 @@ function App() {
 			.catch(() => setSetupDone(false));
 	}, []);
 
-	// Listen for workspace dialog events from command palette and menu
+	// Listen for dialog events from command palette and menu
 	useEffect(() => {
 		const wsHandler = (e: Event) => {
 			const detail = (e as CustomEvent).detail as Dialog;
-			if (detail === "new-workspace" || detail === "open-workspace") {
+			if (detail === "new-workspace" || detail === "open-workspace" || detail === "new-program") {
 				setDialog(detail);
 			}
 		};
@@ -67,6 +68,7 @@ function App() {
 			const action = (e as CustomEvent).detail?.action;
 			if (action === "new-workspace") setDialog("new-workspace");
 			if (action === "open-workspace") setDialog("open-workspace");
+			if (action === "new-program") setDialog("new-program");
 		};
 		window.addEventListener("workspace-dialog", wsHandler);
 		window.addEventListener("menuAction", menuHandler);
@@ -116,6 +118,9 @@ function App() {
 					onComplete={handleWorkspaceSwitch}
 					onCancel={() => setDialog("none")}
 				/>
+			)}
+			{dialog === "new-program" && (
+				<NewProgramDialog onClose={() => setDialog("none")} />
 			)}
 		</WorkspaceProvider>
 	);

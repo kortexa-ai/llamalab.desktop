@@ -57,6 +57,7 @@ export function Sidebar() {
 		try {
 			const ws = await rpcRequest.getWorkspace({});
 			dispatch({ type: "SET_WORKSPACE_NAME", name: ws.name });
+			dispatch({ type: "SET_TRACKS_DIR", tracksDir: ws.tracksDir });
 		} catch (err) {
 			console.error("Failed to load workspace:", err);
 		}

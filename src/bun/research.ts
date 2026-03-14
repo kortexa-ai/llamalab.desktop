@@ -14,7 +14,7 @@ import type {
 	WorkspaceDetail,
 	CreateProgramInput,
 } from "../shared/types";
-import { requireWorkspaceConfig, resolveTilde } from "./config";
+import { requireWorkspaceConfig } from "./config";
 
 // --- File reading helpers ---
 
@@ -76,15 +76,19 @@ function readFinding(program: ProgramJson): string | null {
 	}
 }
 
+function getTrackDir(programId: string): string {
+	const config = requireWorkspaceConfig();
+	return path.join(config.tracksDir, programId);
+}
+
 function readTrack(program: ProgramJson): TrackJson | null {
-	if (!program.trackDir) return null;
-	const trackDir = resolveTilde(program.trackDir);
+	const trackDir = getTrackDir(program.id);
+	if (!fs.existsSync(trackDir)) return null;
 	return readJson<TrackJson>(path.join(trackDir, "track.json"));
 }
 
 function readResults(program: ProgramJson): ExperimentResult[] {
-	if (!program.trackDir) return [];
-	const trackDir = resolveTilde(program.trackDir);
+	const trackDir = getTrackDir(program.id);
 	const results = readJson<ExperimentResult[]>(
 		path.join(trackDir, "results.json"),
 	);
@@ -106,7 +110,7 @@ export function getProgramDetail(id: string): ProgramDetail | null {
 // --- Program creation/update ---
 
 export function createProgram(input: CreateProgramInput): ProgramJson {
-	const { id, name, description, dependencies, tags, metric, metricDirection } =
+	const { id, name, description, baseTrackId, tags, metric, metricDirection } =
 		input;
 	const config = requireWorkspaceConfig();
 
@@ -118,18 +122,10 @@ export function createProgram(input: CreateProgramInput): ProgramJson {
 	if (fs.existsSync(path.join(programDir, "program.json")))
 		throw new Error("Program already exists");
 
-	const relationships = (dependencies || []).map((dep) => ({
-		target: dep,
-		type: "uses_base_model",
-	}));
-
-	// Store paths relative to HOME using tilde notation for portability
-	const codeRootTilde = config.codeRoot.startsWith(process.env.HOME || "")
-		? "~/" + path.relative(process.env.HOME || "", config.codeRoot)
-		: config.codeRoot;
-	const tracksDirTilde = config.tracksDir.startsWith(process.env.HOME || "")
-		? "~/" + path.relative(process.env.HOME || "", config.tracksDir)
-		: config.tracksDir;
+	const relationships: Array<{ target: string; type: string }> = [];
+	if (baseTrackId) {
+		relationships.push({ target: baseTrackId, type: "uses_base_model" });
+	}
 
 	const program: ProgramJson = {
 		id,
@@ -137,14 +133,10 @@ export function createProgram(input: CreateProgramInput): ProgramJson {
 		status: "planning",
 		description: description || "",
 		findingsDoc: `findings/${id}.md`,
-		codeDir: codeRootTilde,
-		trackDir: `${tracksDirTilde}/${id}`,
 		script: `${id.replace(/-/g, "_")}_train.py`,
 		metric: metric || "loss",
 		metricDirection: metricDirection || "minimize",
 		baselineMetric: null,
-		dependencies: dependencies || [],
-		dependents: [],
 		relationships,
 		createdAt: new Date().toISOString().split("T")[0],
 		tags: tags || [],
@@ -157,9 +149,19 @@ export function createProgram(input: CreateProgramInput): ProgramJson {
 		JSON.stringify(program, null, 2),
 	);
 
-	// Create track directory and track.json
+	// Create track directory (track ID = program ID)
 	const trackDir = path.join(config.tracksDir, id);
 	fs.mkdirSync(trackDir, { recursive: true });
+
+	// If branching from a base track, copy its files as a starting point
+	if (baseTrackId) {
+		const baseDir = getTrackDir(baseTrackId);
+		if (fs.existsSync(baseDir)) {
+			copyDirRecursive(baseDir, trackDir);
+		}
+	}
+
+	// Write track.json (overwrites any copied one with new program's config)
 	const track: TrackJson = {
 		id,
 		name,
@@ -169,11 +171,10 @@ export function createProgram(input: CreateProgramInput): ProgramJson {
 		metric_direction: program.metricDirection || "minimize",
 		budget_seconds: 300,
 		baseline_metric: null,
-		checkpoint: null,
+		base_checkpoint: null,
 		config_space: {},
 		fixed_args: [],
 		findings_doc: `findings/${id}.md`,
-		program_dir: id,
 	};
 	fs.writeFileSync(
 		path.join(trackDir, "track.json"),
@@ -315,6 +316,24 @@ export function buildGraph(): GraphData {
 // --- File operations ---
 
 const SKIP_DIRS = new Set([".git", "__pycache__", ".venv", "node_modules"]);
+// Files to skip when branching a track (results are per-experiment, not inherited)
+const SKIP_BRANCH_FILES = new Set(["results.json"]);
+
+function copyDirRecursive(src: string, dest: string): void {
+	const entries = fs.readdirSync(src, { withFileTypes: true });
+	for (const entry of entries) {
+		if (SKIP_DIRS.has(entry.name)) continue;
+		if (SKIP_BRANCH_FILES.has(entry.name)) continue;
+		const srcPath = path.join(src, entry.name);
+		const destPath = path.join(dest, entry.name);
+		if (entry.isDirectory()) {
+			fs.mkdirSync(destPath, { recursive: true });
+			copyDirRecursive(srcPath, destPath);
+		} else {
+			fs.copyFileSync(srcPath, destPath);
+		}
+	}
+}
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const MAX_READ_SIZE = 2 * 1024 * 1024;
 const MAX_DEPTH = 5;
@@ -375,14 +394,12 @@ function isPathSafe(resolvedPath: string, baseDir: string): boolean {
 function resolveSourceDir(
 	programId: string,
 	source: string,
-	program: ProgramJson,
 ): string | null {
 	if (source === "config") {
 		const { researchDir } = requireWorkspaceConfig();
 		return path.join(researchDir, "programs", programId);
 	}
-	if (!program.trackDir) return null;
-	return resolveTilde(program.trackDir);
+	return getTrackDir(programId);
 }
 
 export function getFileTree(
@@ -392,11 +409,9 @@ export function getFileTree(
 	if (!program) throw new Error("Program not found");
 
 	let trackFiles: FileEntry[] = [];
-	if (program.trackDir) {
-		const trackDir = resolveTilde(program.trackDir);
-		if (fs.existsSync(trackDir)) {
-			trackFiles = listFilesRecursive(trackDir, "", 0);
-		}
+	const trackDir = getTrackDir(programId);
+	if (fs.existsSync(trackDir)) {
+		trackFiles = listFilesRecursive(trackDir, "", 0);
 	}
 
 	const { researchDir } = requireWorkspaceConfig();
@@ -414,10 +429,7 @@ export function readProgramFile(
 	filePath: string,
 	source: "track" | "config",
 ): { content: string; size: number } {
-	const program = getProgram(programId);
-	if (!program) throw new Error("Program not found");
-
-	const baseDir = resolveSourceDir(programId, source, program);
+	const baseDir = resolveSourceDir(programId, source);
 	if (!baseDir) throw new Error("Cannot resolve base directory");
 
 	const resolvedPath = path.resolve(baseDir, filePath);
@@ -439,10 +451,7 @@ export function writeProgramFile(
 	content: string,
 	source: "track" | "config",
 ): { ok: boolean } {
-	const program = getProgram(programId);
-	if (!program) throw new Error("Program not found");
-
-	const baseDir = resolveSourceDir(programId, source, program);
+	const baseDir = resolveSourceDir(programId, source);
 	if (!baseDir) throw new Error("Cannot resolve base directory");
 
 	const resolvedPath = path.resolve(baseDir, filePath);
@@ -479,6 +488,7 @@ export function getWorkspace(): WorkspaceDetail {
 	return {
 		name: config.name,
 		codeRoot: config.codeRoot,
+		tracksDir: config.tracksDir,
 		readme,
 		programMd,
 	};

@@ -25,7 +25,7 @@ const STATUS_COLORS: Record<string, string> = {
 export function ProgramOverview({ programId }: { programId: string }) {
 	const [detail, setDetail] = useState<ProgramDetail | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const { openTerminal, dispatch } = useWorkspace();
+	const { state, openTerminal, dispatch } = useWorkspace();
 
 	useEffect(() => {
 		loadDetail();
@@ -88,11 +88,11 @@ export function ProgramOverview({ programId }: { programId: string }) {
 
 			{/* Action buttons */}
 			<div className="flex flex-wrap gap-2 mb-4">
-				{detail.trackDir && (
+				{state.tracksDir && (
 					<>
 						<button
 							onClick={() =>
-								openTerminal(`${detail.id}`, detail.trackDir)
+								openTerminal(`${detail.id}`, `${state.tracksDir}/${detail.id}`)
 							}
 							className="flex items-center gap-1 px-2 py-1 text-xs bg-surface-raised border border-border rounded hover:bg-surface-sunken transition-colors text-stone-700"
 						>
@@ -103,7 +103,7 @@ export function ProgramOverview({ programId }: { programId: string }) {
 							onClick={() =>
 								openTerminal(
 									`run: ${detail.id}`,
-									detail.trackDir,
+									`${state.tracksDir}/${detail.id}`,
 								)
 							}
 							className="flex items-center gap-1 px-2 py-1 text-xs bg-accent text-white rounded hover:bg-accent/90 transition-colors"

@@ -8,14 +8,10 @@ export interface ProgramJson {
 	status: string;
 	description: string;
 	findingsDoc?: string;
-	codeDir?: string;
-	trackDir?: string;
 	script?: string;
 	metric?: string;
 	metricDirection?: string;
 	baselineMetric?: number | null;
-	dependencies?: string[];
-	dependents?: string[];
 	relationships?: Array<{ target: string; type: string }>;
 	createdAt?: string;
 	tags?: string[];
@@ -37,11 +33,11 @@ export interface TrackJson {
 	metric_direction: string;
 	budget_seconds: number;
 	baseline_metric: number | null;
-	checkpoint?: string | null;
+	base_checkpoint?: string | null;
 	config_space: Record<string, unknown>;
 	fixed_args?: string[];
+	env_overrides?: Record<string, string>;
 	findings_doc?: string;
-	program_dir?: string;
 }
 
 export interface ExperimentResult {
@@ -55,6 +51,9 @@ export interface ExperimentResult {
 	duration_seconds: number;
 	timestamp: string;
 	machine?: string;
+	checkpoint?: string;
+	log_csv?: string;
+	extras?: Record<string, unknown>;
 }
 
 export interface FileEntry {
@@ -88,6 +87,7 @@ export interface GraphData {
 export interface WorkspaceDetail {
 	name: string;
 	codeRoot: string;
+	tracksDir: string;
 	readme: string | null;
 	programMd: string | null;
 }
@@ -96,7 +96,7 @@ export interface CreateProgramInput {
 	id: string;
 	name: string;
 	description?: string;
-	dependencies?: string[];
+	baseTrackId?: string; // existing program to branch from (copies track files)
 	tags?: string[];
 	metric?: string;
 	metricDirection?: string;

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AgentType } from "../shared/types";
 import { getProgram } from "./research";
-import { requireWorkspaceConfig, resolveTilde } from "./config";
+import { requireWorkspaceConfig } from "./config";
 
 function safeReadFile(filePath: string): string | null {
 	try {
@@ -45,21 +45,19 @@ export function buildPrompt(opts: {
 				sections.push(`- Baseline: ${program.baselineMetric}`);
 			}
 
-			// Track config
-			if (program.trackDir) {
-				const trackDir = resolveTilde(program.trackDir);
-				const trackJson = safeReadFile(path.join(trackDir, "track.json"));
-				if (trackJson) {
-					sections.push(`\n## Track Config\n\n\`\`\`json\n${trackJson}\n\`\`\``);
-				}
+			// Track config (track dir derived from config + program ID)
+			const trackDir = path.join(config.tracksDir, program.id);
+			const trackJson = safeReadFile(path.join(trackDir, "track.json"));
+			if (trackJson) {
+				sections.push(`\n## Track Config\n\n\`\`\`json\n${trackJson}\n\`\`\``);
+			}
 
-				// Results
-				const results = safeReadFile(path.join(trackDir, "results.json"));
-				if (results) {
-					// Truncate if too long
-					const trimmed = results.length > 5000 ? results.slice(0, 5000) + "\n... (truncated)" : results;
-					sections.push(`\n## Recent Results\n\n\`\`\`json\n${trimmed}\n\`\`\``);
-				}
+			// Results
+			const results = safeReadFile(path.join(trackDir, "results.json"));
+			if (results) {
+				// Truncate if too long
+				const trimmed = results.length > 5000 ? results.slice(0, 5000) + "\n... (truncated)" : results;
+				sections.push(`\n## Recent Results\n\n\`\`\`json\n${trimmed}\n\`\`\``);
 			}
 
 			// Findings doc

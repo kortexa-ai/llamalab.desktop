@@ -78,6 +78,7 @@ interface WorkspaceState {
 	// Data
 	programs: ProgramJson[];
 	workspaceName: string;
+	tracksDir: string;
 }
 
 const initialState: WorkspaceState = {
@@ -99,6 +100,7 @@ const initialState: WorkspaceState = {
 	showSpawnDialog: false,
 	programs: [],
 	workspaceName: "Research Workspace",
+	tracksDir: "",
 };
 
 // --- Actions ---
@@ -120,6 +122,7 @@ type Action =
 	| { type: "UPDATE_TERMINAL_SESSION"; id: string; updates: Partial<TerminalSession> }
 	| { type: "SET_PROGRAMS"; programs: ProgramJson[] }
 	| { type: "SET_WORKSPACE_NAME"; name: string }
+	| { type: "SET_TRACKS_DIR"; tracksDir: string }
 	| { type: "SET_GIT_STATUS"; gitStatus: GitStatus }
 	| { type: "SET_AGENTS"; agents: AgentInfo[] }
 	| { type: "SHOW_SPAWN_DIALOG" }
@@ -213,6 +216,9 @@ function reducer(state: WorkspaceState, action: Action): WorkspaceState {
 
 		case "SET_WORKSPACE_NAME":
 			return { ...state, workspaceName: action.name };
+
+		case "SET_TRACKS_DIR":
+			return { ...state, tracksDir: action.tracksDir };
 
 		case "SET_GIT_STATUS": {
 			const gs = action.gitStatus;

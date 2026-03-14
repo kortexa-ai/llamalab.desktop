@@ -145,6 +145,13 @@ export function CommandPalette() {
 			action: () => dispatch({ type: "SHOW_SPAWN_DIALOG" }),
 		});
 		cmds.push({
+			id: "cmd-new-program",
+			label: "New Program...",
+			category: "Commands",
+			icon: <Flask size={12} className="text-amber-600" />,
+			action: () => window.dispatchEvent(new CustomEvent("workspace-dialog", { detail: "new-program" })),
+		});
+		cmds.push({
 			id: "cmd-new-workspace",
 			label: "New Workspace...",
 			category: "Workspace",

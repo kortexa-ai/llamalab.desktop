@@ -62,7 +62,7 @@ export function AgentLog({ agentName }: { agentName: string }) {
 				</label>
 				<button
 					onClick={handleKill}
-					className="flex items-center gap-1 px-2 py-0.5 text-2xs text-red-600 hover:text-red-700 transition-colors"
+					className="flex items-center gap-1 px-2 py-0.5 text-2xs text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50 transition-colors"
 				>
 					<Stop size={10} />
 					Kill

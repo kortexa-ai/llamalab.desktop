@@ -6,12 +6,12 @@ export function TabBar() {
 
 	// When no tabs, show just a drag region so the window is still draggable
 	if (state.tabs.length === 0) {
-		return <div className="titlebar-drag h-9 flex-shrink-0 bg-surface-raised border-b border-border" />;
+		return <div className="titlebar-drag electrobun-webkit-app-region-drag h-9 flex-shrink-0 bg-surface-raised border-b border-border" />;
 	}
 
 	return (
 		<div className="flex items-center bg-surface-raised border-b border-border flex-shrink-0">
-			<div className="flex items-center overflow-x-auto titlebar-no-drag">
+			<div className="flex items-center overflow-x-auto">
 				{state.tabs.map((tab, index) => (
 					<div
 						key={tab.id}
@@ -38,7 +38,7 @@ export function TabBar() {
 				))}
 			</div>
 			{/* Empty space after tabs is draggable */}
-			<div className="titlebar-drag flex-1 h-full min-h-[30px]" />
+			<div className="titlebar-drag electrobun-webkit-app-region-drag flex-1 h-full min-h-[30px]" />
 		</div>
 	);
 }

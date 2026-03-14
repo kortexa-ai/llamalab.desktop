@@ -6,24 +6,97 @@ import type { AgentType, AgentInfo } from "../shared/types";
 import { buildMission } from "./prompt-builder";
 import { HOME, requireWorkspaceConfig } from "./config";
 
-const HERD_DIR = path.join(HOME, ".claude-herd");
-const HERD_LOG = path.join(HERD_DIR, "log");
-const ANIMALS_DIR = path.join(HERD_DIR, "animals");
+const AGENTS_DIR = path.join(HOME, ".config", "llamalab", "agents");
+const AGENTS_LOG = path.join(AGENTS_DIR, "log");
+const AGENTS_RUNS = path.join(AGENTS_DIR, "runs");
 
 const AGENT_TYPES: AgentType[] = ["claude", "codex", "openclaw", "hermes"];
 
+// Write the stream-json filter script that extracts readable text from claude's stream-json output
+function ensureFilterScript(): void {
+	const filterPath = path.join(AGENTS_DIR, "stream-filter.py");
+	const script = `#!/usr/bin/env python3
+"""Filter claude --output-format stream-json into human-readable text."""
+import sys, json
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        d = json.loads(line)
+    except json.JSONDecodeError:
+        print(line, flush=True)
+        continue
+    t = d.get("type", "")
+    if t == "assistant":
+        for block in d.get("message", {}).get("content", []):
+            if block.get("type") == "text":
+                print(block["text"], end="", flush=True)
+            elif block.get("type") == "tool_use":
+                name = block.get("name", "")
+                inp = block.get("input", {})
+                # Show tool calls compactly
+                if name == "Read":
+                    print(f"\\n> Reading {inp.get('file_path', '?')}...", flush=True)
+                elif name == "Edit":
+                    print(f"\\n> Editing {inp.get('file_path', '?')}...", flush=True)
+                elif name == "Write":
+                    print(f"\\n> Writing {inp.get('file_path', '?')}...", flush=True)
+                elif name == "Bash":
+                    cmd = inp.get("command", "?")
+                    if len(cmd) > 120:
+                        cmd = cmd[:120] + "..."
+                    print(f"\\n> $ {cmd}", flush=True)
+                elif name == "Grep":
+                    print(f"\\n> Searching for {inp.get('pattern', '?')}...", flush=True)
+                elif name == "Glob":
+                    print(f"\\n> Finding {inp.get('pattern', '?')}...", flush=True)
+                else:
+                    print(f"\\n> [{name}]", flush=True)
+    elif t == "tool_result":
+        # Skip large tool results, just note it happened
+        pass
+    elif t == "result":
+        result = d.get("result", "")
+        if result:
+            print(f"\\n\\n--- Result ---\\n{result}", flush=True)
+        cost = d.get("total_cost_usd")
+        if cost:
+            print(f"\\n[Cost: \${cost:.4f}]", flush=True)
+    elif t == "system" and d.get("subtype") == "init":
+        model = d.get("model", "?")
+        print(f"[Model: {model}]", flush=True)
+`;
+	fs.mkdirSync(AGENTS_DIR, { recursive: true });
+	fs.writeFileSync(filterPath, script, { mode: 0o755 });
+}
+
+// Write filter on module load
+ensureFilterScript();
+
 function buildAgentShellCmd(type: AgentType, missionPath: string, cwd: string): string {
+	// Escape for embedding inside a bash script (single quotes are safest)
 	const prompt = `Read ${missionPath} and complete the mission described within.`;
+	const q = shellQuote(prompt);
+	// Path to stream filter script (written by ensureFilterScript())
+	const filter = path.join(AGENTS_DIR, "stream-filter.py");
 	switch (type) {
 		case "claude":
-			return `cd ${cwd} && claude --dangerously-skip-permissions -p "${prompt}"`;
+			// stream-json gives real-time output; plain -p buffers until done
+			return `cd ${cwd} && claude --dangerously-skip-permissions --verbose --output-format stream-json -p ${q} | python3 ${filter}`;
 		case "codex":
-			return `cd ${cwd} && codex --yolo -q "${prompt}"`;
+			return `cd ${cwd} && codex --yolo -q ${q}`;
 		case "openclaw":
-			return `cd ${cwd} && openclaw agent --prompt "${prompt}"`;
+			return `cd ${cwd} && openclaw agent --prompt ${q}`;
 		case "hermes":
-			return `cd ${cwd} && hermes run --prompt "${prompt}"`;
+			return `cd ${cwd} && hermes run --prompt ${q}`;
 	}
+}
+
+/** Shell-quote a string for safe embedding in a bash script */
+function shellQuote(s: string): string {
+	return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
 function generateAnimalName(): string {
@@ -77,7 +150,7 @@ export async function spawnAgent(opts: {
 	const sessionId = `llamalab-${name}`;
 
 	// Ensure directories exist
-	fs.mkdirSync(ANIMALS_DIR, { recursive: true });
+	fs.mkdirSync(AGENTS_RUNS, { recursive: true });
 
 	// Build mission file
 	const { missionPath } = buildMission({
@@ -92,22 +165,63 @@ export async function spawnAgent(opts: {
 		? path.join(config.tracksDir, opts.programId)
 		: config.codeRoot;
 
-	const logFile = path.join(ANIMALS_DIR, `${name}.log`);
-	const shellCmd = `${buildAgentShellCmd(opts.type, missionPath, cwd)} 2>&1 | tee ${logFile}`;
+	const logFile = path.join(AGENTS_RUNS, `${name}.log`);
+	const scriptFile = path.join(AGENTS_RUNS, `${name}.sh`);
+	const agentCmd = buildAgentShellCmd(opts.type, missionPath, cwd);
 
-	// Spawn in tmux
+	// Write a shell script to disk — avoids all quoting hell with bash -c
+	const script = `#!/bin/bash
+echo "[llamalab] Agent ${name} (${opts.type}) starting at $(date)"
+echo "[llamalab] CWD: ${cwd}"
+echo "[llamalab] Mission: ${missionPath}"
+echo "---"
+${agentCmd}
+echo ""
+echo "[llamalab] Agent exited at $(date) with code $?"
+`;
+	fs.writeFileSync(scriptFile, script, { mode: 0o755 });
+
+	console.log(`[agent] Spawning ${opts.type} agent "${name}"`);
+	console.log(`[agent] Mission: ${missionPath}`);
+	console.log(`[agent] CWD: ${cwd}`);
+	console.log(`[agent] Cmd: ${agentCmd}`);
+	console.log(`[agent] Log: ${logFile}`);
+	console.log(`[agent] Script: ${scriptFile}`);
+
+	// Spawn in tmux — run the script, pipe output to both terminal and log file
+	// Using tmux pipe-pane to capture everything the pane outputs
 	const tmuxCmd = [
 		"tmux", "new-session", "-d", "-s", sessionId,
-		"bash", "-c", shellCmd,
+		"bash", scriptFile,
+	];
+	// After session starts, attach pipe-pane to capture output to log file
+	const pipeCmd = [
+		"tmux", "pipe-pane", "-t", sessionId, "-o", `cat >> ${logFile}`,
 	];
 
 	const proc = Bun.spawn(tmuxCmd, {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-	await proc.exited;
+	const stderr = await new Response(proc.stderr).text();
+	const exitCode = await proc.exited;
 
-	// Register in herd log
+	if (exitCode !== 0) {
+		console.error(`[agent] tmux spawn failed (exit ${exitCode}): ${stderr}`);
+	} else {
+		console.log(`[agent] tmux session "${sessionId}" started`);
+		// Attach pipe-pane to capture all pane output to log file
+		const pipeProc = Bun.spawn(pipeCmd, { stdout: "pipe", stderr: "pipe" });
+		const pipeExit = await pipeProc.exited;
+		if (pipeExit === 0) {
+			console.log(`[agent] pipe-pane attached to ${logFile}`);
+		} else {
+			const pipeErr = await new Response(pipeProc.stderr).text();
+			console.error(`[agent] pipe-pane failed: ${pipeErr}`);
+		}
+	}
+
+	// Register in agents log
 	const entry: AgentInfo = {
 		name,
 		type: opts.type,
@@ -118,16 +232,15 @@ export async function spawnAgent(opts: {
 		sessionId,
 	};
 
-	// Append to log file (one JSON per line)
-	fs.appendFileSync(HERD_LOG, JSON.stringify(entry) + "\n", "utf-8");
+	fs.appendFileSync(AGENTS_LOG, JSON.stringify(entry) + "\n", "utf-8");
 
 	return { name, sessionId };
 }
 
 export async function listAgents(): Promise<AgentInfo[]> {
-	if (!fs.existsSync(HERD_LOG)) return [];
+	if (!fs.existsSync(AGENTS_LOG)) return [];
 
-	const lines = fs.readFileSync(HERD_LOG, "utf-8").trim().split("\n").filter(Boolean);
+	const lines = fs.readFileSync(AGENTS_LOG, "utf-8").trim().split("\n").filter(Boolean);
 	const agents: AgentInfo[] = [];
 
 	// Get running tmux sessions
@@ -162,14 +275,18 @@ export async function listAgents(): Promise<AgentInfo[]> {
 }
 
 export async function getAgentLog(name: string): Promise<{ content: string }> {
-	const logFile = path.join(ANIMALS_DIR, `${name}.log`);
+	const logFile = path.join(AGENTS_RUNS, `${name}.log`);
 	try {
-		if (!fs.existsSync(logFile)) return { content: "(no log yet)" };
+		if (!fs.existsSync(logFile)) {
+			console.log(`[agent] Log not found: ${logFile}`);
+			return { content: "(no log file yet — agent may still be starting)" };
+		}
 		const content = fs.readFileSync(logFile, "utf-8");
 		// Return last 10000 chars to keep it manageable
 		return { content: content.length > 10000 ? content.slice(-10000) : content };
-	} catch {
-		return { content: "(error reading log)" };
+	} catch (err) {
+		console.error(`[agent] Error reading log for "${name}":`, err);
+		return { content: `(error reading log: ${err})` };
 	}
 }
 

@@ -24,7 +24,7 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-/* Title bar drag region */
+/* Title bar drag region — electrobun detects the class .electrobun-webkit-app-region-drag */
 .titlebar-drag {
 	-webkit-app-region: drag;
 }

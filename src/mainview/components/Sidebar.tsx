@@ -122,7 +122,7 @@ export function Sidebar() {
 	return (
 		<div className="flex flex-col h-full bg-surface-raised border-r border-border select-none">
 			{/* Drag region at top for title bar */}
-			<div className="titlebar-drag h-9 flex-shrink-0" />
+			<div className="titlebar-drag electrobun-webkit-app-region-drag h-9 flex-shrink-0" />
 
 			{/* Search */}
 			<div className="px-2 pb-2 titlebar-no-drag">

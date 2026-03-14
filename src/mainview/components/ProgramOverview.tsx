@@ -388,10 +388,11 @@ function AgentSplitButton({
 }
 
 function ResultRow({ result }: { result: ExperimentResult }) {
+	const delta = result.delta ?? 0;
 	const deltaColor =
-		result.delta < 0
+		delta < 0
 			? "text-emerald-700"
-			: result.delta > 0
+			: delta > 0
 				? "text-red-700"
 				: "text-stone-500";
 
@@ -407,10 +408,10 @@ function ResultRow({ result }: { result: ExperimentResult }) {
 			<td className="px-2 py-1 font-mono text-stone-700">
 				{result.experiment_id}
 			</td>
-			<td className="px-2 py-1 font-mono">{result.metric_value.toFixed(4)}</td>
+			<td className="px-2 py-1 font-mono">{(result.metric_value ?? 0).toFixed(4)}</td>
 			<td className={`px-2 py-1 font-mono ${deltaColor}`}>
-				{result.delta > 0 ? "+" : ""}
-				{result.delta.toFixed(4)}
+				{delta > 0 ? "+" : ""}
+				{delta.toFixed(4)}
 			</td>
 			<td className={`px-2 py-1 ${statusColor}`}>{result.status}</td>
 			<td className="px-2 py-1 text-stone-400">

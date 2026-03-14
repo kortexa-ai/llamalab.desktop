@@ -97,6 +97,44 @@ export function getRecentWorkspaces(): {
 	return prefs.recentWorkspaces;
 }
 
+// --- Code repo scaffolding ---
+
+const STEP_LOG_PY = `import csv, os
+
+
+class StepLogger:
+    """Lightweight per-step CSV logger. Auto-detects columns from first log() call."""
+
+    def __init__(self, path):
+        self.path = path
+        self._writer = None
+        self._file = None
+        self._fields = None
+
+    def log(self, **kwargs):
+        if self._writer is None:
+            if os.path.dirname(self.path):
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            self._file = open(self.path, "w", newline="")
+            self._fields = list(kwargs.keys())
+            self._writer = csv.DictWriter(self._file, fieldnames=self._fields)
+            self._writer.writeheader()
+        self._writer.writerow(kwargs)
+        self._file.flush()
+`;
+
+function scaffoldCodeRepo(codeRoot: string): void {
+	// Create directories
+	fs.mkdirSync(path.join(codeRoot, "tracks"), { recursive: true });
+	fs.mkdirSync(path.join(codeRoot, "logs"), { recursive: true });
+
+	// Write step_log.py if it doesn't exist
+	const stepLogPath = path.join(codeRoot, "step_log.py");
+	if (!fs.existsSync(stepLogPath)) {
+		fs.writeFileSync(stepLogPath, STEP_LOG_PY);
+	}
+}
+
 // --- Setup wizard ---
 
 export function checkSetup(): { configured: boolean; workspacePath?: string } {
@@ -140,6 +178,9 @@ export async function setupWorkspace(opts: {
 
 		// Create the workspace scaffolding
 		createWorkspace(wsPath, opts.workspaceName, clonePath);
+
+		// Scaffold common infra in the code repo
+		scaffoldCodeRepo(clonePath);
 
 		return { ok: true };
 	} catch (err) {

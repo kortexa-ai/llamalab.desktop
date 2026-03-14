@@ -59,9 +59,14 @@ for line in sys.stdin:
     elif t == "user":
         # Tool results — show stdout from Bash commands
         tr = d.get("tool_use_result", {})
+        if isinstance(tr, str):
+            tr = {"stdout": tr}
+        if not isinstance(tr, dict):
+            tr = {}
         stdout = tr.get("stdout", "")
         stderr = tr.get("stderr", "")
-        is_error = tr.get("is_error", False) or d.get("message", {}).get("content", [{}])[0].get("is_error", False)
+        content_list = d.get("message", {}).get("content", [])
+        is_error = tr.get("is_error", False) or (len(content_list) > 0 and isinstance(content_list[0], dict) and content_list[0].get("is_error", False))
         output = stdout or ""
         if stderr:
             output = output + "\\n" + stderr if output else stderr

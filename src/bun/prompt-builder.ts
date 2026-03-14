@@ -78,17 +78,22 @@ const PROGRAM_MISSION_TEMPLATE = `# Mission: {programName}
 {nextExperimentBlock}
 
 ## Orientation
-Read these files first, in order:
-1. \`{trackDir}/track.json\` — experiment config, metric, budget, hyperparameter space
-2. \`{trackDir}/queue.json\` — queued experiments to run next
-3. \`{trackDir}/results.json\` — what's been tried and results
-4. \`{findingsPath}\` — analysis and conclusions so far
-5. \`{scriptPath}\` — the training script
+Read these files first — and ONLY these files — to orient yourself:
+1. \`{codeRoot}/train.py\` — the reference training script. Follow its conventions for arg parsing, step logging, and checkpoint saving.
+2. \`{trackDir}/track.json\` — experiment config, metric, budget, hyperparameter space
+3. \`{trackDir}/queue.json\` — queued experiments to run next
+4. \`{trackDir}/results.json\` — what's been tried and results
+5. \`{findingsPath}\` — analysis and conclusions so far
+Do NOT read every file in the repo. The above is sufficient context.
 
 ## Constraints
-- Budget: {budgetSeconds}s per experiment
+- **Use the full time budget.** Train for the full {budgetSeconds}s. Use a time-based training loop, not a fixed epoch count. The budget exists to be used.
 - Run: \`cd {codeRoot} && uv run track_runner.py run --track {programId}\`
-- After running, move the experiment label from queue.queue[] to queue.completed[]
+- **Step logging is mandatory.** Pass \`--log-csv logs/{nextLabel}.csv\` to the training script. Use \`step_log.py\` from the repo root.
+- Save checkpoints to \`{trackDir}/checkpoints/{nextLabel}.pt\`, never to the repo root.
+- **Script naming**: Name your training script \`{nextLabel}_train.py\` or similar — never \`train.py\`, to avoid shadowing the reference script in the repo root.
+- **Data caching**: Cache downloaded datasets in \`~/.cache/autoresearch/\`, not in the track directory.
+- After running, move the experiment label from queue.queue[] to queue.completed[] in queue.json. completed[] entries are strings (labels only), not objects — append just the label string.
 - Update findings when you discover something noteworthy
 {agentAddendum}`;
 
@@ -159,6 +164,7 @@ export function buildMission(opts: {
 			experimentCount: String(results.length),
 			queuedCount: String(queue?.queue?.length || 0),
 			nextExperimentBlock: buildNextExperimentBlock(nextItem),
+			nextLabel: nextItem?.label || "experiment",
 			budgetSeconds: String(budgetSeconds),
 			agentAddendum: "",
 		};

@@ -14,7 +14,7 @@ interface SetupWizardProps {
 
 export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
 	const [step, setStep] = useState(0);
-	const [workspacePath, setWorkspacePath] = useState("~/.kortexa/research");
+	const [workspacePath, setWorkspacePath] = useState("~/src/research");
 	const [workspaceName, setWorkspaceName] = useState("Research Workspace");
 	const [repoUrl, setRepoUrl] = useState(
 		"https://github.com/karpathy/autoresearch",
@@ -96,7 +96,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
 								value={workspacePath}
 								onChange={(e) => setWorkspacePath(e.target.value)}
 								className="w-full px-3 py-2 text-sm border border-border rounded-md bg-surface-sunken outline-none focus:border-accent"
-								placeholder="~/.kortexa/research"
+								placeholder="~/src/research"
 							/>
 							<div className="pt-2">
 								<label className="text-xs text-stone-500 block mb-1">
